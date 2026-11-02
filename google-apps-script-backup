@@ -1,0 +1,5450 @@
+/***************************************************************
+ * BENCHMARK EXPORTS
+ * PRODUCTION + QUALITY CONTROL TOWER
+ *
+ * VERSION: FINAL
+ *
+ * SHEETS:
+ *   1. INPUT
+ *   2. QUALITY INPUT
+ *   3. SETUP
+ *   4. Benchmark Exports
+ *
+ * IMPORTANT:
+ * createProductionSystem() DOES NOT DELETE EXISTING
+ * PRODUCTION DATA FROM INPUT.
+ ***************************************************************/
+
+
+/***************************************************************
+ * CONFIGURATION
+ ***************************************************************/
+const CONFIG = {
+
+    INPUT_SHEET: "INPUT",
+    QUALITY_SHEET: "QUALITY INPUT",
+    SETUP_SHEET: "SETUP",
+    DISPLAY_SHEET: "Benchmark Exports",
+
+    NUMBER_OF_LINES: 14,
+    NUMBER_OF_HOURS: 11,
+
+    HEADER_ROW: 6,
+    FIRST_LINE_ROW: 7,
+
+    HOURLY_PLAN_ROW: 21,
+    CUM_ACTUAL_ROW: 22,
+    CUM_PLAN_ROW: 23,
+    DAILY_PLAN_ROW: 24,
+    VARIANCE_PCS_ROW: 25,
+    VARIANCE_HRS_ROW: 26,
+
+    QUALITY_TITLE_ROW: 29,
+    QUALITY_HEADER_ROW: 31,
+    QUALITY_FIRST_ROW: 32,
+
+    TOTAL_COLUMNS: 18
+};
+
+
+/***************************************************************
+ * MAIN FUNCTION
+ ***************************************************************/
+function createProductionSystem() {
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    const input =
+        getOrCreateSheet_(ss, CONFIG.INPUT_SHEET);
+
+    const quality =
+        getOrCreateSheet_(ss, CONFIG.QUALITY_SHEET);
+
+    const setup =
+        getOrCreateSheet_(ss, CONFIG.SETUP_SHEET);
+
+    const display =
+        getOrCreateSheet_(ss, CONFIG.DISPLAY_SHEET);
+
+
+    /*
+     * IMPORTANT:
+     * These functions DO NOT clear existing INPUT data.
+     */
+    repairInputSheet_(input);
+
+    repairQualitySheet_(quality);
+
+    repairSetupSheet_(setup);
+
+
+    /*
+     * Dashboard can safely be rebuilt.
+     */
+    createDashboard_(display);
+
+
+    /*
+     * Populate dashboard.
+     */
+    updateProductionDisplay();
+
+
+    SpreadsheetApp.getUi().alert(
+        "Benchmark Exports Production & Quality Control Tower created successfully.\n\n" +
+        "Existing INPUT data has been preserved."
+    );
+}
+
+
+/***************************************************************
+ * GET OR CREATE SHEET
+ ***************************************************************/
+function getOrCreateSheet_(ss, name) {
+
+    let sheet = ss.getSheetByName(name);
+
+    if (!sheet) {
+        sheet = ss.insertSheet(name);
+    }
+
+    return sheet;
+}
+
+
+/***************************************************************
+ * INPUT SHEET
+ *
+ * Existing data is preserved.
+ ***************************************************************/
+function repairInputSheet_(sheet) {
+
+    const headers = [
+        "Date",
+        "Time",
+        "Line",
+        "Hour",
+        "Buyer",
+        "Style",
+        "PO",
+        "Color",
+        "PCS"
+    ];
+
+
+    /*
+     * Create headers if sheet is empty.
+     */
+    if (sheet.getLastRow() === 0) {
+
+        sheet.getRange(
+            1,
+            1,
+            1,
+            headers.length
+        ).setValues([headers]);
+
+    } else {
+
+        /*
+         * Add missing headers only.
+         * Existing rows remain untouched.
+         */
+        const currentHeaders =
+            sheet.getRange(
+                1,
+                1,
+                1,
+                Math.max(sheet.getLastColumn(), headers.length)
+            ).getValues()[0];
+
+        for (let i = 0; i < headers.length; i++) {
+
+            if (!currentHeaders[i]) {
+
+                sheet
+                    .getRange(1, i + 1)
+                    .setValue(headers[i]);
+            }
+        }
+    }
+
+
+    /*
+     * Header formatting.
+     */
+    formatHeader_(
+        sheet.getRange(
+            1,
+            1,
+            1,
+            headers.length
+        )
+    );
+
+
+    sheet.setFrozenRows(1);
+
+
+    /*
+     * Number formats.
+     */
+    if (sheet.getMaxRows() > 1) {
+
+        sheet
+            .getRange(
+                2,
+                1,
+                sheet.getMaxRows() - 1,
+                1
+            )
+            .setNumberFormat("dd-mmm-yyyy");
+
+        sheet
+            .getRange(
+                2,
+                2,
+                sheet.getMaxRows() - 1,
+                1
+            )
+            .setNumberFormat("hh:mm");
+
+        sheet
+            .getRange(
+                2,
+                9,
+                sheet.getMaxRows() - 1,
+                1
+            )
+            .setNumberFormat("#,##0");
+    }
+
+
+    /*
+     * Line validation.
+     */
+    if (sheet.getMaxRows() > 1) {
+
+        const lineRule =
+            SpreadsheetApp.newDataValidation()
+                .requireNumberBetween(
+                    1,
+                    CONFIG.NUMBER_OF_LINES
+                )
+                .setAllowInvalid(true)
+                .build();
+
+        sheet
+            .getRange(
+                2,
+                3,
+                sheet.getMaxRows() - 1,
+                1
+            )
+            .setDataValidation(lineRule);
+
+
+        /*
+         * Hour validation.
+         */
+        const hourRule =
+            SpreadsheetApp.newDataValidation()
+                .requireNumberBetween(
+                    1,
+                    CONFIG.NUMBER_OF_HOURS
+                )
+                .setAllowInvalid(true)
+                .build();
+
+        sheet
+            .getRange(
+                2,
+                4,
+                sheet.getMaxRows() - 1,
+                1
+            )
+            .setDataValidation(hourRule);
+    }
+
+
+    /*
+     * Filter.
+     */
+    try {
+
+        if (sheet.getFilter()) {
+            sheet.getFilter().remove();
+        }
+
+        sheet
+            .getRange(
+                1,
+                1,
+                Math.max(sheet.getLastRow(), 2),
+                headers.length
+            )
+            .createFilter();
+
+    } catch (err) {
+        console.log(err);
+    }
+
+
+    sheet.autoResizeColumns(
+        1,
+        headers.length
+    );
+}
+
+
+/***************************************************************
+ * QUALITY INPUT SHEET
+ ***************************************************************/
+function repairQualitySheet_(sheet) {
+
+    const headers = [
+        "Date",
+        "Time",
+        "Line",
+        "Buyer",
+        "Style",
+        "PO",
+        "Checked PCS",
+        "Pass PCS",
+        "Defect PCS",
+        "Defect Code",
+        "Defect Description"
+    ];
+
+
+    /*
+     * Create headers if empty.
+     */
+    if (sheet.getLastRow() === 0) {
+
+        sheet
+            .getRange(
+                1,
+                1,
+                1,
+                headers.length
+            )
+            .setValues([headers]);
+
+    } else {
+
+        /*
+         * Add missing headers only.
+         */
+        const currentHeaders =
+            sheet.getRange(
+                1,
+                1,
+                1,
+                Math.max(
+                    sheet.getLastColumn(),
+                    headers.length
+                )
+            ).getValues()[0];
+
+        for (let i = 0; i < headers.length; i++) {
+
+            if (!currentHeaders[i]) {
+
+                sheet
+                    .getRange(1, i + 1)
+                    .setValue(headers[i]);
+            }
+        }
+    }
+
+
+    formatHeader_(
+        sheet.getRange(
+            1,
+            1,
+            1,
+            headers.length
+        )
+    );
+
+
+    sheet.setFrozenRows(1);
+
+
+    if (sheet.getMaxRows() > 1) {
+
+        sheet
+            .getRange(
+                2,
+                1,
+                sheet.getMaxRows() - 1,
+                1
+            )
+            .setNumberFormat("dd-mmm-yyyy");
+
+        sheet
+            .getRange(
+                2,
+                2,
+                sheet.getMaxRows() - 1,
+                1
+            )
+            .setNumberFormat("hh:mm");
+
+        sheet
+            .getRange(
+                2,
+                7,
+                sheet.getMaxRows() - 1,
+                3
+            )
+            .setNumberFormat("#,##0");
+    }
+
+
+    /*
+     * Line validation.
+     */
+    if (sheet.getMaxRows() > 1) {
+
+        const lineRule =
+            SpreadsheetApp.newDataValidation()
+                .requireNumberBetween(
+                    1,
+                    CONFIG.NUMBER_OF_LINES
+                )
+                .setAllowInvalid(true)
+                .build();
+
+        sheet
+            .getRange(
+                2,
+                3,
+                sheet.getMaxRows() - 1,
+                1
+            )
+            .setDataValidation(lineRule);
+    }
+
+
+    /*
+     * Filter.
+     */
+    try {
+
+        if (sheet.getFilter()) {
+            sheet.getFilter().remove();
+        }
+
+        sheet
+            .getRange(
+                1,
+                1,
+                Math.max(sheet.getLastRow(), 2),
+                headers.length
+            )
+            .createFilter();
+
+    } catch (err) {
+        console.log(err);
+    }
+
+
+    sheet.autoResizeColumns(
+        1,
+        headers.length
+    );
+}
+
+
+/***************************************************************
+ * SETUP SHEET
+ ***************************************************************/
+function repairSetupSheet_(sheet) {
+
+    /*
+     * If the setup is empty, create it.
+     *
+     * Existing setup values are preserved.
+     */
+    if (sheet.getLastRow() === 0) {
+
+        sheet.getRange("A1:B12").setValues([
+            ["HOURLY PLAN", "PCS"],
+            ["Hour 1", 147],
+            ["Hour 2", 126],
+            ["Hour 3", 128],
+            ["Hour 4", 118],
+            ["Hour 5", 115],
+            ["Hour 6", 138],
+            ["Hour 7", 65],
+            ["Hour 8", 79],
+            ["Hour 9", 59],
+            ["Hour 10", 79],
+            ["Hour 11", 49]
+        ]);
+
+
+        sheet.getRange("D1:E5").setValues([
+            ["SETTING", "VALUE"],
+            ["Daily Plan", ""],
+            ["Plan Hrs", 956],
+            ["TMs", 174],
+            ["Efficiency Target", 55]
+        ]);
+
+
+        sheet.getRange("G1:H2").setValues([
+            ["STATUS", "VALUE"],
+            ["Factory", "BENCHMARK EXPORTS"]
+        ]);
+    }
+
+
+    /*
+     * Make sure hourly plans exist.
+     */
+    const defaultPlans = [
+        147,
+        126,
+        128,
+        118,
+        115,
+        138,
+        65,
+        79,
+        59,
+        79,
+        49
+    ];
+
+
+    for (
+        let i = 0;
+        i < CONFIG.NUMBER_OF_HOURS;
+        i++
+    ) {
+
+        const cell =
+            sheet.getRange(2 + i, 2);
+
+        if (
+            cell.getValue() === "" ||
+            cell.getValue() === null
+        ) {
+
+            cell.setValue(
+                defaultPlans[i]
+            );
+        }
+    }
+
+
+    /*
+     * Daily Plan formula.
+     */
+    sheet
+        .getRange("E2")
+        .setFormula("=SUM(B2:B12)");
+
+
+    /*
+     * Plan Hrs.
+     */
+    if (
+        sheet.getRange("E3").getValue() === "" ||
+        sheet.getRange("E3").getValue() === null
+    ) {
+
+        sheet
+            .getRange("E3")
+            .setValue(956);
+    }
+
+
+    /*
+     * TMs.
+     */
+    if (
+        sheet.getRange("E4").getValue() === "" ||
+        sheet.getRange("E4").getValue() === null
+    ) {
+
+        sheet
+            .getRange("E4")
+            .setValue(174);
+    }
+
+
+    /*
+     * Efficiency Target.
+     */
+    if (
+        sheet.getRange("E5").getValue() === "" ||
+        sheet.getRange("E5").getValue() === null
+    ) {
+
+        sheet
+            .getRange("E5")
+            .setValue(55);
+    }
+
+
+    /*
+     * Cumulative plan.
+     */
+    sheet
+        .getRange("G4:H4")
+        .setValues([
+            ["HOUR", "CUM PLAN"]
+        ]);
+
+    let runningPlan = 0;
+
+    for (
+        let i = 0;
+        i < CONFIG.NUMBER_OF_HOURS;
+        i++
+    ) {
+
+        runningPlan +=
+            Number(
+                sheet.getRange(2 + i, 2).getValue()
+            ) || 0;
+
+        sheet
+            .getRange(5 + i, 7, 1, 2)
+            .setValues([
+                [
+                    "H" + (i + 1),
+                    runningPlan
+                ]
+            ]);
+    }
+
+
+    formatHeader_(
+        sheet.getRange("A1:B1")
+    );
+
+    formatHeader_(
+        sheet.getRange("D1:E1")
+    );
+
+    formatHeader_(
+        sheet.getRange("G4:H4")
+    );
+
+
+    sheet.autoResizeColumns(1, 8);
+}
+
+
+/***************************************************************
+ * CREATE DASHBOARD
+ ***************************************************************/
+function createDashboard_(sheet) {
+
+    /*
+     * Make sure sheet has enough dimensions.
+     */
+    ensureSheetSize_(
+        sheet,
+        45,
+        CONFIG.TOTAL_COLUMNS
+    );
+
+
+    /*
+     * Remove all old merged cells.
+     */
+    try {
+
+        sheet
+            .getRange(
+                1,
+                1,
+                sheet.getMaxRows(),
+                sheet.getMaxColumns()
+            )
+            .breakApart();
+
+    } catch (err) {
+        console.log(err);
+    }
+
+
+    /*
+     * Clear dashboard ONLY.
+     *
+     * INPUT and QUALITY INPUT are never cleared.
+     */
+    sheet.clear();
+
+
+    /*
+     * TV background.
+     */
+    sheet
+        .getRange(
+            1,
+            1,
+            45,
+            CONFIG.TOTAL_COLUMNS
+        )
+        .setBackground("#0F172A")
+        .setFontColor("#FFFFFF")
+        .setFontFamily("Arial");
+
+
+    /*************************************************************
+     * TITLE
+     *************************************************************/
+    sheet
+        .getRange(
+            1,
+            1,
+            1,
+            CONFIG.TOTAL_COLUMNS
+        )
+        .merge()
+        .setValue(
+            "BENCHMARK EXPORTS  |  PRODUCTION & QUALITY CONTROL TOWER"
+        )
+        .setBackground("#081B2E")
+        .setFontColor("#FFFFFF")
+        .setFontSize(22)
+        .setFontWeight("bold")
+        .setHorizontalAlignment("center")
+        .setVerticalAlignment("middle");
+
+    sheet.setRowHeight(1, 44);
+
+
+    /*************************************************************
+     * FILTER BAR
+     *************************************************************/
+    const filterLabels = [
+        ["A2", "BUYER"],
+        ["D2", "STYLE"],
+        ["G2", "PO"],
+        ["J2", "COLOR"],
+        ["M2", "DATE"]
+    ];
+
+
+    filterLabels.forEach(item => {
+
+        sheet
+            .getRange(item[0])
+            .setValue(item[1])
+            .setFontWeight("bold")
+            .setFontColor("#93C5FD")
+            .setHorizontalAlignment("center");
+    });
+
+
+    sheet
+        .getRange("B2")
+        .setValue("ALL");
+
+    sheet
+        .getRange("E2")
+        .setValue("ALL");
+
+    sheet
+        .getRange("H2")
+        .setValue("ALL");
+
+    sheet
+        .getRange("K2")
+        .setValue("ALL");
+
+    sheet
+        .getRange("N2")
+        .setValue(new Date())
+        .setNumberFormat("dd-mmm-yyyy");
+
+
+    [
+        "B2",
+        "E2",
+        "H2",
+        "K2",
+        "N2"
+    ].forEach(cell => {
+
+        sheet
+            .getRange(cell)
+            .setBackground("#1E293B")
+            .setFontColor("#FFFFFF")
+            .setFontWeight("bold")
+            .setHorizontalAlignment("center")
+            .setBorder(
+                true,
+                true,
+                true,
+                true,
+                false,
+                false,
+                "#475569",
+                SpreadsheetApp.BorderStyle.SOLID
+            );
+    });
+
+
+    /*************************************************************
+     * KPI CARDS
+     *************************************************************/
+    createKpiCard_(
+        sheet,
+        "A3:B3",
+        "A4:B4",
+        "DAILY PLAN"
+    );
+
+    createKpiCard_(
+        sheet,
+        "C3:D3",
+        "C4:D4",
+        "ACTUAL PCS"
+    );
+
+    createKpiCard_(
+        sheet,
+        "E3:F3",
+        "E4:F4",
+        "ACHIEVEMENT"
+    );
+
+    createKpiCard_(
+        sheet,
+        "G3:H3",
+        "G4:H4",
+        "EFFICIENCY"
+    );
+
+    createKpiCard_(
+        sheet,
+        "I3:J3",
+        "I4:J4",
+        "QUALITY PASS"
+    );
+
+    createKpiCard_(
+        sheet,
+        "K3:L3",
+        "K4:L4",
+        "DHU"
+    );
+
+    createKpiCard_(
+        sheet,
+        "M3:N3",
+        "M4:N4",
+        "DEFECT PCS"
+    );
+
+    createKpiCard_(
+        sheet,
+        "O3:P3",
+        "O4:P4",
+        "CUM HRS"
+    );
+
+    createKpiCard_(
+        sheet,
+        "Q3:R3",
+        "Q4:R4",
+        "VARIANCE"
+    );
+
+
+    /*************************************************************
+     * MAIN PRODUCTION HEADER
+     *************************************************************/
+    const headers = [
+        "LINE",
+        "BUYER",
+        "STYLE",
+        "H1",
+        "H2",
+        "H3",
+        "H4",
+        "H5",
+        "H6",
+        "H7",
+        "H8",
+        "H9",
+        "H10",
+        "H11",
+        "PCS",
+        "ACHV %",
+        "QUALITY",
+        "DHU %"
+    ];
+
+
+    sheet
+        .getRange(
+            CONFIG.HEADER_ROW,
+            1,
+            1,
+            headers.length
+        )
+        .setValues([headers])
+        .setBackground("#1E3A5F")
+        .setFontColor("#FFFFFF")
+        .setFontWeight("bold")
+        .setFontSize(11)
+        .setHorizontalAlignment("center")
+        .setVerticalAlignment("middle");
+
+
+    sheet.setRowHeight(
+        CONFIG.HEADER_ROW,
+        32
+    );
+
+
+    /*************************************************************
+     * LINE ROWS
+     *************************************************************/
+    for (
+        let i = 0;
+        i < CONFIG.NUMBER_OF_LINES;
+        i++
+    ) {
+
+        const row =
+            CONFIG.FIRST_LINE_ROW + i;
+
+        sheet
+            .getRange(row, 1)
+            .setValue(
+                (i + 1) + "."
+            )
+            .setFontSize(15)
+            .setFontWeight("bold")
+            .setFontColor("#60A5FA")
+            .setHorizontalAlignment("center");
+
+
+        sheet
+            .getRange(
+                row,
+                1,
+                1,
+                CONFIG.TOTAL_COLUMNS
+            )
+            .setBorder(
+                true,
+                true,
+                true,
+                true,
+                true,
+                true,
+                "#334155",
+                SpreadsheetApp.BorderStyle.SOLID
+            );
+
+
+        sheet.setRowHeight(
+            row,
+            35
+        );
+    }
+
+
+    /*************************************************************
+     * SUMMARY ROWS
+     *************************************************************/
+    const summaryLabels = [
+        "Hourly Plan",
+        "Cum Actual",
+        "Cum Plan",
+        "Daily Plan",
+        "Variance (PCS)",
+        "Variance (Hrs)"
+    ];
+
+
+    for (
+        let i = 0;
+        i < summaryLabels.length;
+        i++
+    ) {
+
+        const row =
+            CONFIG.HOURLY_PLAN_ROW + i;
+
+        sheet
+            .getRange(row, 1)
+            .setValue(summaryLabels[i])
+            .setFontWeight("bold")
+            .setFontColor("#E2E8F0")
+            .setHorizontalAlignment("left");
+
+        sheet
+            .getRange(
+                row,
+                1,
+                1,
+                CONFIG.TOTAL_COLUMNS
+            )
+            .setBackground(
+                i === 1
+                    ? "#1D4ED8"
+                    : "#172033"
+            );
+
+        sheet.setRowHeight(
+            row,
+            25
+        );
+    }
+
+
+    /*************************************************************
+     * QUALITY TITLE
+     *************************************************************/
+    sheet
+        .getRange(
+            CONFIG.QUALITY_TITLE_ROW,
+            1,
+            1,
+            CONFIG.TOTAL_COLUMNS
+        )
+        .merge()
+        .setValue(
+            "QUALITY CONTROL  |  LINE QUALITY & TOP DEFECTS"
+        )
+        .setBackground("#081B2E")
+        .setFontColor("#FFFFFF")
+        .setFontSize(16)
+        .setFontWeight("bold")
+        .setHorizontalAlignment("center")
+        .setVerticalAlignment("middle");
+
+    sheet.setRowHeight(
+        CONFIG.QUALITY_TITLE_ROW,
+        34
+    );
+
+
+    /*************************************************************
+     * QUALITY SUBHEADERS
+     *************************************************************/
+    sheet
+        .getRange("A30:H30")
+        .merge()
+        .setValue("LINE QUALITY")
+        .setBackground("#1E3A5F")
+        .setFontWeight("bold")
+        .setHorizontalAlignment("center");
+
+
+    sheet
+        .getRange("J30:L30")
+        .merge()
+        .setValue("TOP DEFECTS")
+        .setBackground("#1E3A5F")
+        .setFontWeight("bold")
+        .setHorizontalAlignment("center");
+
+
+    const qualityHeaders = [
+        "LINE",
+        "CHECKED",
+        "PASS",
+        "DEFECT",
+        "QUALITY %",
+        "DHU %",
+        "STATUS",
+        "RANK"
+    ];
+
+
+    sheet
+        .getRange(
+            CONFIG.QUALITY_HEADER_ROW,
+            1,
+            1,
+            8
+        )
+        .setValues([qualityHeaders])
+        .setBackground("#253B53")
+        .setFontWeight("bold")
+        .setHorizontalAlignment("center");
+
+
+    sheet
+        .getRange("J31:L31")
+        .setValues([
+            [
+                "DEFECT",
+                "PCS",
+                "VISUAL"
+            ]
+        ])
+        .setBackground("#253B53")
+        .setFontWeight("bold")
+        .setHorizontalAlignment("center");
+
+
+    /*************************************************************
+     * COLUMN WIDTHS
+     *************************************************************/
+    sheet.setColumnWidth(1, 58);
+    sheet.setColumnWidth(2, 105);
+    sheet.setColumnWidth(3, 105);
+
+    for (let c = 4; c <= 14; c++) {
+        sheet.setColumnWidth(c, 66);
+    }
+
+    sheet.setColumnWidth(15, 85);
+    sheet.setColumnWidth(16, 78);
+    sheet.setColumnWidth(17, 78);
+    sheet.setColumnWidth(18, 72);
+
+
+    /*
+     * Quality columns.
+     */
+    sheet.setColumnWidth(10, 135);
+    sheet.setColumnWidth(11, 70);
+    sheet.setColumnWidth(12, 145);
+
+
+    /*
+     * IMPORTANT:
+     * Only freeze rows.
+     *
+     * We DO NOT freeze columns because KPI/header
+     * merged cells can cause the Google Sheets
+     * "part of a merged cell" error.
+     */
+    sheet.setFrozenRows(6);
+
+
+    /*************************************************************
+     * FILTER VALIDATION
+     *************************************************************/
+    setFilterValidation_(sheet);
+}
+
+
+/***************************************************************
+ * KPI CARD
+ ***************************************************************/
+function createKpiCard_(
+    sheet,
+    labelRange,
+    valueRange,
+    label
+) {
+
+    sheet
+        .getRange(labelRange)
+        .merge()
+        .setValue(label)
+        .setBackground("#1E3A5F")
+        .setFontColor("#CBD5E1")
+        .setFontSize(9)
+        .setFontWeight("bold")
+        .setHorizontalAlignment("center")
+        .setVerticalAlignment("middle");
+
+
+    sheet
+        .getRange(valueRange)
+        .merge()
+        .setValue("-")
+        .setBackground("#172033")
+        .setFontColor("#FFFFFF")
+        .setFontSize(17)
+        .setFontWeight("bold")
+        .setHorizontalAlignment("center")
+        .setVerticalAlignment("middle");
+}
+
+
+/***************************************************************
+ * FILTER DROPDOWNS
+ ***************************************************************/
+function setFilterValidation_(sheet) {
+
+    const ss =
+        SpreadsheetApp.getActiveSpreadsheet();
+
+    const input =
+        ss.getSheetByName(
+            CONFIG.INPUT_SHEET
+        );
+
+    if (!input) return;
+
+    const lastRow =
+        input.getLastRow();
+
+    if (lastRow < 2) return;
+
+    const data =
+        input
+            .getRange(
+                2,
+                1,
+                lastRow - 1,
+                9
+            )
+            .getValues();
+
+
+    const buyers = new Set();
+    const styles = new Set();
+    const pos = new Set();
+    const colors = new Set();
+
+
+    data.forEach(row => {
+
+        if (row[4]) {
+            buyers.add(
+                String(row[4]).trim()
+            );
+        }
+
+        if (row[5]) {
+            styles.add(
+                String(row[5]).trim()
+            );
+        }
+
+        if (row[6]) {
+            pos.add(
+                String(row[6]).trim()
+            );
+        }
+
+        if (row[7]) {
+            colors.add(
+                String(row[7]).trim()
+            );
+        }
+    });
+
+
+    createDropdown_(
+        sheet,
+        "B2",
+        ["ALL"].concat(
+            Array.from(buyers).sort()
+        )
+    );
+
+
+    createDropdown_(
+        sheet,
+        "E2",
+        ["ALL"].concat(
+            Array.from(styles).sort()
+        )
+    );
+
+
+    createDropdown_(
+        sheet,
+        "H2",
+        ["ALL"].concat(
+            Array.from(pos).sort()
+        )
+    );
+
+
+    createDropdown_(
+        sheet,
+        "K2",
+        ["ALL"].concat(
+            Array.from(colors).sort()
+        )
+    );
+}
+
+
+/***************************************************************
+ * CREATE DROPDOWN
+ ***************************************************************/
+function createDropdown_(
+    sheet,
+    cell,
+    values
+) {
+
+    const rule =
+        SpreadsheetApp.newDataValidation()
+            .requireValueInList(
+                values,
+                true
+            )
+            .setAllowInvalid(true)
+            .build();
+
+    sheet
+        .getRange(cell)
+        .setDataValidation(rule);
+}
+
+
+/***************************************************************
+ * MAIN UPDATE
+ ***************************************************************/
+function updateProductionDisplay() {
+
+    const ss =
+        SpreadsheetApp.getActiveSpreadsheet();
+
+    const input =
+        ss.getSheetByName(
+            CONFIG.INPUT_SHEET
+        );
+
+    const quality =
+        ss.getSheetByName(
+            CONFIG.QUALITY_SHEET
+        );
+
+    const setup =
+        ss.getSheetByName(
+            CONFIG.SETUP_SHEET
+        );
+
+    const display =
+        ss.getSheetByName(
+            CONFIG.DISPLAY_SHEET
+        );
+
+
+    if (!input || !setup || !display) {
+        return;
+    }
+
+
+    const timezone =
+        ss.getSpreadsheetTimeZone() ||
+        "Asia/Dhaka";
+
+
+    /*************************************************************
+     * SELECTED DATE
+     *************************************************************/
+    let selectedDate =
+        display
+            .getRange("N2")
+            .getValue();
+
+
+    if (!(selectedDate instanceof Date)) {
+
+        selectedDate =
+            new Date();
+
+        display
+            .getRange("N2")
+            .setValue(selectedDate);
+    }
+
+
+    const selectedDateKey =
+        Utilities.formatDate(
+            selectedDate,
+            timezone,
+            "yyyy-MM-dd"
+        );
+
+
+    /*************************************************************
+     * FILTERS
+     *************************************************************/
+    const buyerFilter =
+        String(
+            display
+                .getRange("B2")
+                .getValue() ||
+            "ALL"
+        );
+
+
+    const styleFilter =
+        String(
+            display
+                .getRange("E2")
+                .getValue() ||
+            "ALL"
+        );
+
+
+    const poFilter =
+        String(
+            display
+                .getRange("H2")
+                .getValue() ||
+            "ALL"
+        );
+
+
+    const colorFilter =
+        String(
+            display
+                .getRange("K2")
+                .getValue() ||
+            "ALL"
+        );
+
+
+    /*************************************************************
+     * PLANS
+     *************************************************************/
+    const hourlyPlans =
+        getHourlyPlans_(setup);
+
+
+    const cumulativePlans = [];
+
+    let runningPlan = 0;
+
+    hourlyPlans.forEach(plan => {
+
+        runningPlan += plan;
+
+        cumulativePlans.push(
+            runningPlan
+        );
+    });
+
+
+    const dailyPlan =
+        hourlyPlans.reduce(
+            (a, b) => a + b,
+            0
+        );
+
+
+    /*************************************************************
+     * PRODUCTION
+     *************************************************************/
+    const production =
+        getProductionData_(
+            input,
+            timezone,
+            selectedDateKey,
+            buyerFilter,
+            styleFilter,
+            poFilter,
+            colorFilter
+        );
+
+
+    /*************************************************************
+     * MAIN LINE TABLE
+     *************************************************************/
+    const dashboardRows = [];
+
+    const lineTotals = [];
+
+
+    for (
+        let line = 1;
+        line <= CONFIG.NUMBER_OF_LINES;
+        line++
+    ) {
+
+        const lineData =
+            production[line] || {
+                hours:
+                    Array(
+                        CONFIG.NUMBER_OF_HOURS
+                    ).fill(0),
+
+                buyers: new Set(),
+                styles: new Set()
+            };
+
+
+        const row = [];
+
+
+        /*
+         * Line.
+         */
+        row.push(
+            line + "."
+        );
+
+
+        /*
+         * Buyer.
+         */
+        row.push(
+            formatSet_(
+                lineData.buyers
+            )
+        );
+
+
+        /*
+         * Style.
+         */
+        row.push(
+            formatSet_(
+                lineData.styles
+            )
+        );
+
+
+        /*
+         * Hourly production.
+         */
+        let total = 0;
+
+        for (
+            let h = 0;
+            h < CONFIG.NUMBER_OF_HOURS;
+            h++
+        ) {
+
+            const pcs =
+                Number(
+                    lineData.hours[h] || 0
+                );
+
+            row.push(pcs);
+
+            total += pcs;
+        }
+
+
+        /*
+         * Daily achievement.
+         */
+        const achievement =
+            dailyPlan > 0
+                ? total / dailyPlan
+                : 0;
+
+
+        /*
+         * Quality.
+         */
+        const q =
+            getLineQuality_(
+                quality,
+                line,
+                timezone,
+                selectedDateKey,
+                buyerFilter,
+                styleFilter,
+                poFilter
+            );
+
+
+        const qualityPercent =
+            q.checked > 0
+                ? q.pass / q.checked
+                : 0;
+
+
+        const dhu =
+            q.checked > 0
+                ? q.defect / q.checked
+                : 0;
+
+
+        row.push(total);
+        row.push(achievement);
+        row.push(qualityPercent);
+        row.push(dhu);
+
+
+        dashboardRows.push(row);
+
+        lineTotals.push(total);
+    }
+
+
+    /*************************************************************
+     * WRITE MAIN TABLE
+     *************************************************************/
+    display
+        .getRange(
+            CONFIG.FIRST_LINE_ROW,
+            1,
+            CONFIG.NUMBER_OF_LINES,
+            CONFIG.TOTAL_COLUMNS
+        )
+        .setValues(dashboardRows);
+
+
+    /*
+     * Number formats.
+     */
+    display
+        .getRange(
+            CONFIG.FIRST_LINE_ROW,
+            4,
+            CONFIG.NUMBER_OF_LINES,
+            12
+        )
+        .setNumberFormat("#,##0");
+
+
+    display
+        .getRange(
+            CONFIG.FIRST_LINE_ROW,
+            16,
+            CONFIG.NUMBER_OF_LINES,
+            3
+        )
+        .setNumberFormat("0.0%");
+
+
+    /*************************************************************
+     * PRODUCTION COLORS
+     *************************************************************/
+    formatProductionCells_(
+        display,
+        production,
+        hourlyPlans
+    );
+
+
+    /*************************************************************
+     * HOURLY TOTALS
+     *************************************************************/
+    const hourlyActual =
+        Array(
+            CONFIG.NUMBER_OF_HOURS
+        ).fill(0);
+
+
+    for (
+        let line = 1;
+        line <= CONFIG.NUMBER_OF_LINES;
+        line++
+    ) {
+
+        const lineData =
+            production[line];
+
+        if (!lineData) continue;
+
+
+        for (
+            let h = 0;
+            h < CONFIG.NUMBER_OF_HOURS;
+            h++
+        ) {
+
+            hourlyActual[h] +=
+                Number(
+                    lineData.hours[h] || 0
+                );
+        }
+    }
+
+
+    /*************************************************************
+     * CUMULATIVE ACTUAL
+     *************************************************************/
+    const cumulativeActual = [];
+
+    let runningActual = 0;
+
+    hourlyActual.forEach(value => {
+
+        runningActual += value;
+
+        cumulativeActual.push(
+            runningActual
+        );
+    });
+
+
+    /*************************************************************
+     * VARIANCES
+     *************************************************************/
+    const variancePCS = [];
+    const varianceHrs = [];
+
+
+    for (
+        let h = 0;
+        h < CONFIG.NUMBER_OF_HOURS;
+        h++
+    ) {
+
+        const variance =
+            hourlyActual[h] -
+            hourlyPlans[h];
+
+
+        variancePCS.push(
+            variance
+        );
+
+
+        const varianceHour =
+            hourlyPlans[h] > 0
+                ? variance / hourlyPlans[h]
+                : 0;
+
+
+        varianceHrs.push(
+            varianceHour
+        );
+    }
+
+
+    /*************************************************************
+     * SUMMARY ROWS
+     *************************************************************/
+    const summaryRows = [
+        hourlyPlans,
+        hourlyActual,
+        cumulativePlans,
+        hourlyPlans,
+        variancePCS,
+        varianceHrs
+    ];
+
+
+    display
+        .getRange(
+            CONFIG.HOURLY_PLAN_ROW,
+            4,
+            6,
+            CONFIG.NUMBER_OF_HOURS
+        )
+        .setValues(summaryRows);
+
+
+    /*
+     * Summary totals.
+     */
+    display
+        .getRange(
+            CONFIG.HOURLY_PLAN_ROW,
+            15
+        )
+        .setValue(dailyPlan);
+
+
+    display
+        .getRange(
+            CONFIG.CUM_ACTUAL_ROW,
+            15
+        )
+        .setValue(
+            runningActual
+        );
+
+
+    display
+        .getRange(
+            CONFIG.CUM_PLAN_ROW,
+            15
+        )
+        .setValue(
+            dailyPlan
+        );
+
+
+    display
+        .getRange(
+            CONFIG.DAILY_PLAN_ROW,
+            15
+        )
+        .setValue(
+            dailyPlan
+        );
+
+
+    display
+        .getRange(
+            CONFIG.VARIANCE_PCS_ROW,
+            15
+        )
+        .setValue(
+            runningActual - dailyPlan
+        );
+
+
+    const totalVarianceHrs =
+        varianceHrs.reduce(
+            (a, b) => a + b,
+            0
+        );
+
+
+    display
+        .getRange(
+            CONFIG.VARIANCE_HRS_ROW,
+            15
+        )
+        .setValue(
+            totalVarianceHrs
+        );
+
+
+    /*************************************************************
+     * QUALITY TOTAL
+     *************************************************************/
+    const qualityTotal =
+        getTotalQuality_(
+            quality,
+            timezone,
+            selectedDateKey,
+            buyerFilter,
+            styleFilter,
+            poFilter
+        );
+
+
+    const qualityPercent =
+        qualityTotal.checked > 0
+            ? qualityTotal.pass /
+            qualityTotal.checked
+            : 0;
+
+
+    const dhu =
+        qualityTotal.checked > 0
+            ? qualityTotal.defect /
+            qualityTotal.checked
+            : 0;
+
+
+    /*************************************************************
+     * ACHIEVEMENT
+     *************************************************************/
+    const achievement =
+        dailyPlan > 0
+            ? runningActual / dailyPlan
+            : 0;
+
+
+    /*************************************************************
+     * EQUIVALENT CUM HOURS
+     *************************************************************/
+    const averageHourlyPlan =
+        hourlyPlans.length > 0
+            ? dailyPlan /
+            hourlyPlans.length
+            : 0;
+
+
+    const cumHours =
+        averageHourlyPlan > 0
+            ? runningActual /
+            averageHourlyPlan
+            : 0;
+
+
+    /*************************************************************
+     * EFFICIENCY
+     *
+     * If actual efficiency exists in SETUP, use it.
+     * Otherwise use achievement as operational indicator.
+     *************************************************************/
+    let efficiency =
+        Number(
+            setup.getRange("E5").getValue()
+        ) || 0;
+
+
+    /*
+     * Display efficiency as percentage.
+     *
+     * E5 is stored as 55 for 55%.
+     */
+    efficiency =
+        efficiency / 100;
+
+
+    /*
+     * If there is actual production,
+     * achievement is shown as the live operational
+     * efficiency indicator.
+     *
+     * This avoids falsely claiming that PCS/plan is
+     * the true SMV efficiency.
+     */
+    if (runningActual > 0) {
+        efficiency = achievement;
+    }
+
+
+    /*************************************************************
+     * KPI VALUES
+     *************************************************************/
+    setKpiValue_(
+        display,
+        "A4:B4",
+        dailyPlan,
+        "#,##0"
+    );
+
+
+    setKpiValue_(
+        display,
+        "C4:D4",
+        runningActual,
+        "#,##0"
+    );
+
+
+    setKpiValue_(
+        display,
+        "E4:F4",
+        achievement,
+        "0.0%"
+    );
+
+
+    setKpiValue_(
+        display,
+        "G4:H4",
+        efficiency,
+        "0.0%"
+    );
+
+
+    setKpiValue_(
+        display,
+        "I4:J4",
+        qualityPercent,
+        "0.0%"
+    );
+
+
+    setKpiValue_(
+        display,
+        "K4:L4",
+        dhu,
+        "0.0%"
+    );
+
+
+    setKpiValue_(
+        display,
+        "M4:N4",
+        qualityTotal.defect,
+        "#,##0"
+    );
+
+
+    setKpiValue_(
+        display,
+        "O4:P4",
+        cumHours,
+        "0.0"
+    );
+
+
+    setKpiValue_(
+        display,
+        "Q4:R4",
+        runningActual - dailyPlan,
+        "#,##0"
+    );
+
+
+    /*************************************************************
+     * QUALITY SECTION
+     *************************************************************/
+    updateQualitySection_(
+        display,
+        quality,
+        timezone,
+        selectedDateKey,
+        buyerFilter,
+        styleFilter,
+        poFilter
+    );
+
+
+    /*************************************************************
+     * SUMMARY FORMAT
+     *************************************************************/
+    formatSummary_(
+        display
+    );
+
+
+    /*************************************************************
+     * UPDATE FILTERS
+     *************************************************************/
+    setFilterValidation_(
+        display
+    );
+}
+
+
+/***************************************************************
+ * GET HOURLY PLANS
+ ***************************************************************/
+function getHourlyPlans_(setup) {
+
+    const plans = [];
+
+
+    for (
+        let i = 0;
+        i < CONFIG.NUMBER_OF_HOURS;
+        i++
+    ) {
+
+        const value =
+            Number(
+                setup
+                    .getRange(
+                        2 + i,
+                        2
+                    )
+                    .getValue()
+            ) || 0;
+
+
+        plans.push(value);
+    }
+
+
+    return plans;
+}
+
+
+/***************************************************************
+ * GET PRODUCTION DATA
+ ***************************************************************/
+function getProductionData_(
+    sheet,
+    timezone,
+    selectedDateKey,
+    buyerFilter,
+    styleFilter,
+    poFilter,
+    colorFilter
+) {
+
+    const result = {};
+
+
+    /*
+     * Create all 14 lines.
+     */
+    for (
+        let line = 1;
+        line <= CONFIG.NUMBER_OF_LINES;
+        line++
+    ) {
+
+        result[line] = {
+
+            hours:
+                Array(
+                    CONFIG.NUMBER_OF_HOURS
+                ).fill(0),
+
+            buyers:
+                new Set(),
+
+            styles:
+                new Set()
+        };
+    }
+
+
+    const lastRow =
+        sheet.getLastRow();
+
+
+    if (lastRow < 2) {
+        return result;
+    }
+
+
+    const lastCol =
+        Math.max(
+            sheet.getLastColumn(),
+            9
+        );
+
+
+    const data =
+        sheet
+            .getRange(
+                2,
+                1,
+                lastRow - 1,
+                lastCol
+            )
+            .getValues();
+
+
+    data.forEach(row => {
+
+        if (!row[0]) return;
+
+
+        /*
+         * Date.
+         */
+        const dateKey =
+            getDateKey_(
+                row[0],
+                timezone
+            );
+
+
+        if (
+            dateKey !==
+            selectedDateKey
+        ) {
+            return;
+        }
+
+
+        /*
+         * Line.
+         */
+        const line =
+            Number(row[2]);
+
+
+        if (
+            !line ||
+            line < 1 ||
+            line > CONFIG.NUMBER_OF_LINES
+        ) {
+            return;
+        }
+
+
+        /*
+         * Hour.
+         */
+        const hour =
+            Number(row[3]);
+
+
+        if (
+            !hour ||
+            hour < 1 ||
+            hour > CONFIG.NUMBER_OF_HOURS
+        ) {
+            return;
+        }
+
+
+        const buyer =
+            String(
+                row[4] || ""
+            ).trim();
+
+
+        const style =
+            String(
+                row[5] || ""
+            ).trim();
+
+
+        const po =
+            String(
+                row[6] || ""
+            ).trim();
+
+
+        const color =
+            String(
+                row[7] || ""
+            ).trim();
+
+
+        const pcs =
+            Number(row[8]) || 0;
+
+
+        /*
+         * Filters.
+         */
+        if (
+            buyerFilter !== "ALL" &&
+            buyer !== buyerFilter
+        ) {
+            return;
+        }
+
+
+        if (
+            styleFilter !== "ALL" &&
+            style !== styleFilter
+        ) {
+            return;
+        }
+
+
+        if (
+            poFilter !== "ALL" &&
+            po !== poFilter
+        ) {
+            return;
+        }
+
+
+        if (
+            colorFilter !== "ALL" &&
+            color !== colorFilter
+        ) {
+            return;
+        }
+
+
+        /*
+         * IMPORTANT:
+         *
+         * Same Line + Hour entries
+         * are automatically summed.
+         */
+        result[line]
+            .hours[hour - 1] += pcs;
+
+
+        if (buyer) {
+            result[line]
+                .buyers
+                .add(buyer);
+        }
+
+
+        if (style) {
+            result[line]
+                .styles
+                .add(style);
+        }
+    });
+
+
+    return result;
+}
+
+
+/***************************************************************
+ * DATE KEY
+ ***************************************************************/
+function getDateKey_(
+    value,
+    timezone
+) {
+
+    if (value instanceof Date) {
+
+        return Utilities.formatDate(
+            value,
+            timezone,
+            "yyyy-MM-dd"
+        );
+    }
+
+
+    /*
+     * Try to parse text date.
+     */
+    const parsed =
+        new Date(value);
+
+
+    if (
+        !isNaN(
+            parsed.getTime()
+        )
+    ) {
+
+        return Utilities.formatDate(
+            parsed,
+            timezone,
+            "yyyy-MM-dd"
+        );
+    }
+
+
+    return String(value).trim();
+}
+
+
+/***************************************************************
+ * FORMAT SET
+ ***************************************************************/
+function formatSet_(set) {
+
+    if (
+        !set ||
+        set.size === 0
+    ) {
+        return "-";
+    }
+
+
+    const values =
+        Array.from(set);
+
+
+    if (
+        values.length === 1
+    ) {
+        return values[0];
+    }
+
+
+    /*
+     * Avoid overcrowding TV screen.
+     */
+    return "MULTI";
+}
+
+
+/***************************************************************
+ * PRODUCTION CELL COLORS
+ ***************************************************************/
+function formatProductionCells_(
+    display,
+    production,
+    hourlyPlans
+) {
+
+    for (
+        let line = 1;
+        line <= CONFIG.NUMBER_OF_LINES;
+        line++
+    ) {
+
+        const row =
+            CONFIG.FIRST_LINE_ROW +
+            line -
+            1;
+
+
+        const lineData =
+            production[line];
+
+
+        for (
+            let h = 0;
+            h < CONFIG.NUMBER_OF_HOURS;
+            h++
+        ) {
+
+            const col =
+                4 + h;
+
+
+            const cell =
+                display
+                    .getRange(
+                        row,
+                        col
+                    );
+
+
+            const actual =
+                lineData
+                    ? Number(
+                        lineData.hours[h] || 0
+                    )
+                    : 0;
+
+
+            const plan =
+                Number(
+                    hourlyPlans[h] || 0
+                );
+
+
+            /*
+             * No production.
+             */
+            if (actual === 0) {
+
+                cell
+                    .setBackground("#334155")
+                    .setFontColor("#CBD5E1");
+
+
+                /*
+                 * Target achieved.
+                 */
+            } else if (
+                actual >= plan
+            ) {
+
+                cell
+                    .setBackground("#059669")
+                    .setFontColor("#FFFFFF");
+
+
+                /*
+                 * Below target.
+                 */
+            } else {
+
+                cell
+                    .setBackground("#D65A86")
+                    .setFontColor("#FFFFFF");
+            }
+
+
+            cell
+                .setFontSize(13)
+                .setFontWeight("bold")
+                .setHorizontalAlignment("center")
+                .setVerticalAlignment("middle");
+        }
+
+
+        /*
+         * PCS total.
+         */
+        display
+            .getRange(
+                row,
+                15
+            )
+            .setBackground("#2563EB")
+            .setFontColor("#FFFFFF")
+            .setFontWeight("bold");
+
+
+        /*
+         * Achievement.
+         */
+        const total =
+            lineData
+                ? lineData.hours.reduce(
+                    (a, b) => a + b,
+                    0
+                )
+                : 0;
+
+
+        const dailyPlan =
+            hourlyPlans.reduce(
+                (a, b) => a + b,
+                0
+            );
+
+
+        const achievement =
+            dailyPlan > 0
+                ? total / dailyPlan
+                : 0;
+
+
+        const achCell =
+            display
+                .getRange(
+                    row,
+                    16
+                );
+
+
+        if (
+            achievement >= 1
+        ) {
+
+            achCell
+                .setBackground("#059669")
+                .setFontColor("#FFFFFF");
+
+
+        } else if (
+            achievement >= 0.9
+        ) {
+
+            achCell
+                .setBackground("#D97706")
+                .setFontColor("#FFFFFF");
+
+
+        } else {
+
+            achCell
+                .setBackground("#DC2626")
+                .setFontColor("#FFFFFF");
+        }
+
+
+        achCell
+            .setFontWeight("bold");
+
+
+        /*
+         * Quality / DHU are formatted separately,
+         * but give them a neutral base.
+         */
+        display
+            .getRange(
+                row,
+                17,
+                1,
+                2
+            )
+            .setBackground("#1E293B")
+            .setFontColor("#FFFFFF")
+            .setFontWeight("bold");
+    }
+}
+
+
+/***************************************************************
+ * GET LINE QUALITY
+ ***************************************************************/
+function getLineQuality_(
+    sheet,
+    lineNumber,
+    timezone,
+    selectedDateKey,
+    buyerFilter,
+    styleFilter,
+    poFilter
+) {
+
+    const result = {
+
+        checked: 0,
+        pass: 0,
+        defect: 0
+    };
+
+
+    if (!sheet) {
+        return result;
+    }
+
+
+    const lastRow =
+        sheet.getLastRow();
+
+
+    if (lastRow < 2) {
+        return result;
+    }
+
+
+    const lastCol =
+        Math.max(
+            sheet.getLastColumn(),
+            11
+        );
+
+
+    const data =
+        sheet
+            .getRange(
+                2,
+                1,
+                lastRow - 1,
+                lastCol
+            )
+            .getValues();
+
+
+    data.forEach(row => {
+
+        if (!row[0]) return;
+
+
+        const dateKey =
+            getDateKey_(
+                row[0],
+                timezone
+            );
+
+
+        if (
+            dateKey !==
+            selectedDateKey
+        ) {
+            return;
+        }
+
+
+        if (
+            Number(row[2]) !==
+            lineNumber
+        ) {
+            return;
+        }
+
+
+        const buyer =
+            String(
+                row[3] || ""
+            ).trim();
+
+
+        const style =
+            String(
+                row[4] || ""
+            ).trim();
+
+
+        const po =
+            String(
+                row[5] || ""
+            ).trim();
+
+
+        if (
+            buyerFilter !== "ALL" &&
+            buyer !== buyerFilter
+        ) {
+            return;
+        }
+
+
+        if (
+            styleFilter !== "ALL" &&
+            style !== styleFilter
+        ) {
+            return;
+        }
+
+
+        if (
+            poFilter !== "ALL" &&
+            po !== poFilter
+        ) {
+            return;
+        }
+
+
+        result.checked +=
+            Number(row[6]) || 0;
+
+
+        result.pass +=
+            Number(row[7]) || 0;
+
+
+        result.defect +=
+            Number(row[8]) || 0;
+    });
+
+
+    return result;
+}
+
+
+/***************************************************************
+ * TOTAL QUALITY
+ ***************************************************************/
+function getTotalQuality_(
+    sheet,
+    timezone,
+    selectedDateKey,
+    buyerFilter,
+    styleFilter,
+    poFilter
+) {
+
+    const result = {
+
+        checked: 0,
+        pass: 0,
+        defect: 0
+    };
+
+
+    if (!sheet) {
+        return result;
+    }
+
+
+    const lastRow =
+        sheet.getLastRow();
+
+
+    if (lastRow < 2) {
+        return result;
+    }
+
+
+    const lastCol =
+        Math.max(
+            sheet.getLastColumn(),
+            11
+        );
+
+
+    const data =
+        sheet
+            .getRange(
+                2,
+                1,
+                lastRow - 1,
+                lastCol
+            )
+            .getValues();
+
+
+    data.forEach(row => {
+
+        if (!row[0]) return;
+
+
+        const dateKey =
+            getDateKey_(
+                row[0],
+                timezone
+            );
+
+
+        if (
+            dateKey !==
+            selectedDateKey
+        ) {
+            return;
+        }
+
+
+        const buyer =
+            String(
+                row[3] || ""
+            ).trim();
+
+
+        const style =
+            String(
+                row[4] || ""
+            ).trim();
+
+
+        const po =
+            String(
+                row[5] || ""
+            ).trim();
+
+
+        if (
+            buyerFilter !== "ALL" &&
+            buyer !== buyerFilter
+        ) {
+            return;
+        }
+
+
+        if (
+            styleFilter !== "ALL" &&
+            style !== styleFilter
+        ) {
+            return;
+        }
+
+
+        if (
+            poFilter !== "ALL" &&
+            po !== poFilter
+        ) {
+            return;
+        }
+
+
+        result.checked +=
+            Number(row[6]) || 0;
+
+
+        result.pass +=
+            Number(row[7]) || 0;
+
+
+        result.defect +=
+            Number(row[8]) || 0;
+    });
+
+
+    return result;
+}
+
+
+/***************************************************************
+ * QUALITY SECTION
+ ***************************************************************/
+function updateQualitySection_(
+    display,
+    sheet,
+    timezone,
+    selectedDateKey,
+    buyerFilter,
+    styleFilter,
+    poFilter
+) {
+
+    /*
+     * Clear old quality data only.
+     */
+    display
+        .getRange(
+            CONFIG.QUALITY_FIRST_ROW,
+            1,
+            14,
+            12
+        )
+        .clearContent();
+
+
+    if (
+        !sheet ||
+        sheet.getLastRow() < 2
+    ) {
+
+        display
+            .getRange("A32")
+            .setValue(
+                "No quality data entered"
+            )
+            .setFontColor("#94A3B8");
+
+        return;
+    }
+
+
+    /*************************************************************
+     * LINE QUALITY
+     *************************************************************/
+    const rows = [];
+
+
+    for (
+        let line = 1;
+        line <= CONFIG.NUMBER_OF_LINES;
+        line++
+    ) {
+
+        const q =
+            getLineQuality_(
+                sheet,
+                line,
+                timezone,
+                selectedDateKey,
+                buyerFilter,
+                styleFilter,
+                poFilter
+            );
+
+
+        const qualityPercent =
+            q.checked > 0
+                ? q.pass / q.checked
+                : 0;
+
+
+        const dhu =
+            q.checked > 0
+                ? q.defect / q.checked
+                : 0;
+
+
+        let status =
+            "NO DATA";
+
+
+        if (q.checked > 0) {
+
+            if (dhu <= 0.02) {
+
+                status = "GOOD";
+
+            } else if (dhu <= 0.04) {
+
+                status = "WATCH";
+
+            } else {
+
+                status = "ACTION";
+            }
+        }
+
+
+        rows.push([
+            "L" +
+            String(line)
+                .padStart(2, "0"),
+
+            q.checked,
+            q.pass,
+            q.defect,
+            qualityPercent,
+            dhu,
+            status,
+            ""
+        ]);
+    }
+
+
+    /*************************************************************
+     * QUALITY RANK
+     *************************************************************/
+    const ranked =
+        rows
+            .map((row, index) => {
+
+                return {
+                    index: index,
+                    dhu: row[5],
+                    checked: row[1]
+                };
+            })
+            .filter(x =>
+                x.checked > 0
+            )
+            .sort(
+                (a, b) =>
+                    a.dhu - b.dhu
+            );
+
+
+    ranked.forEach(
+        (item, index) => {
+
+            rows[item.index][7] =
+                index + 1;
+        }
+    );
+
+
+    /*************************************************************
+     * WRITE QUALITY TABLE
+     *************************************************************/
+    display
+        .getRange(
+            CONFIG.QUALITY_FIRST_ROW,
+            1,
+            rows.length,
+            8
+        )
+        .setValues(rows);
+
+
+    display
+        .getRange(
+            CONFIG.QUALITY_FIRST_ROW,
+            2,
+            rows.length,
+            3
+        )
+        .setNumberFormat("#,##0");
+
+
+    display
+        .getRange(
+            CONFIG.QUALITY_FIRST_ROW,
+            5,
+            rows.length,
+            2
+        )
+        .setNumberFormat("0.0%");
+
+
+    display
+        .getRange(
+            CONFIG.QUALITY_FIRST_ROW,
+            1,
+            rows.length,
+            8
+        )
+        .setHorizontalAlignment("center");
+
+
+    /*************************************************************
+     * QUALITY STATUS COLORS
+     *************************************************************/
+    for (
+        let i = 0;
+        i < rows.length;
+        i++
+    ) {
+
+        const row =
+            CONFIG.QUALITY_FIRST_ROW +
+            i;
+
+
+        const status =
+            rows[i][6];
+
+
+        const cell =
+            display.getRange(
+                row,
+                7
+            );
+
+
+        if (
+            status === "GOOD"
+        ) {
+
+            cell
+                .setBackground("#059669")
+                .setFontColor("#FFFFFF");
+
+
+        } else if (
+            status === "WATCH"
+        ) {
+
+            cell
+                .setBackground("#D97706")
+                .setFontColor("#FFFFFF");
+
+
+        } else if (
+            status === "ACTION"
+        ) {
+
+            cell
+                .setBackground("#DC2626")
+                .setFontColor("#FFFFFF");
+
+
+        } else {
+
+            cell
+                .setBackground("#475569")
+                .setFontColor("#CBD5E1");
+        }
+
+
+        cell
+            .setFontWeight("bold");
+    }
+
+
+    /*************************************************************
+     * TOP DEFECTS
+     *************************************************************/
+    const defects = {};
+
+
+    const data =
+        sheet
+            .getRange(
+                2,
+                1,
+                sheet.getLastRow() - 1,
+                Math.max(
+                    sheet.getLastColumn(),
+                    11
+                )
+            )
+            .getValues();
+
+
+    data.forEach(row => {
+
+        if (!row[0]) return;
+
+
+        const dateKey =
+            getDateKey_(
+                row[0],
+                timezone
+            );
+
+
+        if (
+            dateKey !==
+            selectedDateKey
+        ) {
+            return;
+        }
+
+
+        const buyer =
+            String(
+                row[3] || ""
+            ).trim();
+
+
+        const style =
+            String(
+                row[4] || ""
+            ).trim();
+
+
+        const po =
+            String(
+                row[5] || ""
+            ).trim();
+
+
+        if (
+            buyerFilter !== "ALL" &&
+            buyer !== buyerFilter
+        ) {
+            return;
+        }
+
+
+        if (
+            styleFilter !== "ALL" &&
+            style !== styleFilter
+        ) {
+            return;
+        }
+
+
+        if (
+            poFilter !== "ALL" &&
+            po !== poFilter
+        ) {
+            return;
+        }
+
+
+        const code =
+            String(
+                row[9] || ""
+            ).trim();
+
+
+        const description =
+            String(
+                row[10] || ""
+            ).trim();
+
+
+        const defectPCS =
+            Number(row[8]) || 0;
+
+
+        if (
+            defectPCS <= 0
+        ) {
+            return;
+        }
+
+
+        const defectName =
+            description ||
+            code ||
+            "Unknown Defect";
+
+
+        if (
+            !defects[defectName]
+        ) {
+            defects[defectName] = 0;
+        }
+
+
+        defects[defectName] +=
+            defectPCS;
+    });
+
+
+    const topDefects =
+        Object
+            .keys(defects)
+            .map(name => {
+
+                return {
+                    name: name,
+                    pcs: defects[name]
+                };
+            })
+            .sort(
+                (a, b) =>
+                    b.pcs - a.pcs
+            )
+            .slice(0, 8);
+
+
+    if (
+        topDefects.length === 0
+    ) {
+
+        display
+            .getRange("J32")
+            .setValue(
+                "No defect data"
+            )
+            .setFontColor("#94A3B8");
+
+        return;
+    }
+
+
+    const defectRows =
+        topDefects.map(
+            defect => [
+                defect.name,
+                defect.pcs,
+                ""
+            ]
+        );
+
+
+    display
+        .getRange(
+            32,
+            10,
+            defectRows.length,
+            3
+        )
+        .setValues(defectRows);
+
+
+    display
+        .getRange(
+            32,
+            11,
+            defectRows.length,
+            1
+        )
+        .setNumberFormat("#,##0");
+
+
+    display
+        .getRange(
+            32,
+            10,
+            defectRows.length,
+            3
+        )
+        .setHorizontalAlignment("center");
+
+
+    /*
+     * Visual defect bars.
+     */
+    const maxDefect =
+        topDefects[0].pcs ||
+        1;
+
+
+    for (
+        let i = 0;
+        i < topDefects.length;
+        i++
+    ) {
+
+        const barLength =
+            Math.max(
+                1,
+                Math.round(
+                    (
+                        topDefects[i].pcs /
+                        maxDefect
+                    ) * 15
+                )
+            );
+
+
+        display
+            .getRange(
+                32 + i,
+                12
+            )
+            .setValue(
+                "█".repeat(
+                    barLength
+                )
+            )
+            .setFontColor("#F59E0B")
+            .setFontSize(11);
+    }
+}
+
+
+/***************************************************************
+ * SUMMARY FORMATTING
+ ***************************************************************/
+function formatSummary_(display) {
+
+    const rows = [
+        CONFIG.HOURLY_PLAN_ROW,
+        CONFIG.CUM_ACTUAL_ROW,
+        CONFIG.CUM_PLAN_ROW,
+        CONFIG.DAILY_PLAN_ROW,
+        CONFIG.VARIANCE_PCS_ROW,
+        CONFIG.VARIANCE_HRS_ROW
+    ];
+
+
+    rows.forEach(row => {
+
+        display
+            .getRange(
+                row,
+                4,
+                1,
+                CONFIG.NUMBER_OF_HOURS
+            )
+            .setHorizontalAlignment(
+                "center"
+            )
+            .setFontWeight("bold");
+    });
+
+
+    /*
+     * Variance.
+     */
+    display
+        .getRange(
+            CONFIG.VARIANCE_PCS_ROW,
+            4,
+            1,
+            CONFIG.NUMBER_OF_HOURS
+        )
+        .setFontColor("#FCA5A5");
+
+
+    display
+        .getRange(
+            CONFIG.VARIANCE_HRS_ROW,
+            4,
+            1,
+            CONFIG.NUMBER_OF_HOURS
+        )
+        .setFontColor("#FCA5A5");
+}
+
+
+/***************************************************************
+ * KPI VALUE
+ ***************************************************************/
+function setKpiValue_(
+    sheet,
+    range,
+    value,
+    numberFormat
+) {
+
+    const cell =
+        sheet.getRange(range);
+
+
+    cell.setValue(value);
+
+
+    if (numberFormat) {
+
+        cell
+            .setNumberFormat(
+                numberFormat
+            );
+    }
+
+
+    /*
+     * Default.
+     */
+    cell
+        .setBackground("#172033")
+        .setFontColor("#FFFFFF")
+        .setFontWeight("bold")
+        .setHorizontalAlignment("center")
+        .setVerticalAlignment("middle");
+
+
+    /*
+     * Achievement.
+     */
+    if (
+        range === "E4:F4"
+    ) {
+
+        if (
+            value >= 1
+        ) {
+
+            cell.setBackground(
+                "#059669"
+            );
+
+        } else if (
+            value >= 0.90
+        ) {
+
+            cell.setBackground(
+                "#D97706"
+            );
+
+        } else {
+
+            cell.setBackground(
+                "#DC2626"
+            );
+        }
+    }
+
+
+    /*
+     * Quality.
+     */
+    if (
+        range === "I4:J4"
+    ) {
+
+        if (
+            value >= 0.98
+        ) {
+
+            cell.setBackground(
+                "#059669"
+            );
+
+        } else if (
+            value >= 0.95
+        ) {
+
+            cell.setBackground(
+                "#D97706"
+            );
+
+        } else if (
+            value > 0
+        ) {
+
+            cell.setBackground(
+                "#DC2626"
+            );
+        }
+    }
+
+
+    /*
+     * DHU.
+     */
+    if (
+        range === "K4:L4"
+    ) {
+
+        if (
+            value <= 0.02
+        ) {
+
+            cell.setBackground(
+                "#059669"
+            );
+
+        } else if (
+            value <= 0.04
+        ) {
+
+            cell.setBackground(
+                "#D97706"
+            );
+
+        } else if (
+            value > 0
+        ) {
+
+            cell.setBackground(
+                "#DC2626"
+            );
+        }
+    }
+
+
+    /*
+     * Positive variance.
+     */
+    if (
+        range === "Q4:R4"
+    ) {
+
+        if (
+            value >= 0
+        ) {
+
+            cell.setBackground(
+                "#059669"
+            );
+
+        } else {
+
+            cell.setBackground(
+                "#DC2626"
+            );
+        }
+    }
+}
+
+
+/***************************************************************
+ * HEADER FORMAT
+ ***************************************************************/
+function formatHeader_(range) {
+
+    range
+        .setBackground("#0B1F33")
+        .setFontColor("#FFFFFF")
+        .setFontWeight("bold")
+        .setHorizontalAlignment("center")
+        .setVerticalAlignment("middle");
+}
+
+
+/***************************************************************
+ * ENSURE SHEET SIZE
+ ***************************************************************/
+function ensureSheetSize_(
+    sheet,
+    rows,
+    columns
+) {
+
+    if (
+        sheet.getMaxRows() < rows
+    ) {
+
+        sheet.insertRowsAfter(
+            sheet.getMaxRows(),
+            rows -
+            sheet.getMaxRows()
+        );
+    }
+
+
+    if (
+        sheet.getMaxColumns() < columns
+    ) {
+
+        sheet.insertColumnsAfter(
+            sheet.getMaxColumns(),
+            columns -
+            sheet.getMaxColumns()
+        );
+    }
+}
+
+
+
+
+/***************************************************************
+ * MENU
+ ***************************************************************/
+function onOpen() {
+
+    SpreadsheetApp
+        .getUi()
+        .createMenu(
+            "CONTROL TOWER"
+        )
+
+        .addItem(
+            "🔄 Refresh Dashboard",
+            "updateProductionDisplay"
+        )
+
+        .addItem(
+            "🏗 Rebuild Dashboard",
+            "createProductionSystem"
+        )
+
+        .addSeparator()
+
+        .addItem(
+            "🧪 Add Test Production",
+            "addTestProduction"
+        )
+
+        .addItem(
+            "🧪 Add Test Quality",
+            "addTestQuality"
+        )
+
+        .addSeparator()
+
+        .addItem(
+            "🗑 Clear Today's Production",
+            "clearTodayProduction"
+        )
+
+        .addItem(
+            "⏱ Create 5-Minute Refresh",
+            "createFiveMinuteTrigger"
+        )
+
+        .addToUi();
+}
+
+
+/***************************************************************
+ * TEST PRODUCTION
+ ***************************************************************/
+function addTestProduction() {
+
+    const ss =
+        SpreadsheetApp
+            .getActiveSpreadsheet();
+
+
+    const sheet =
+        ss.getSheetByName(
+            CONFIG.INPUT_SHEET
+        );
+
+
+    if (!sheet) {
+        return;
+    }
+
+
+    const today =
+        new Date();
+
+
+    const sample = [
+
+        [
+            today,
+            new Date(),
+            1,
+            1,
+            "BUYER A",
+            "JC1561",
+            "PO1001",
+            "BLACK",
+            148
+        ],
+
+        [
+            today,
+            new Date(),
+            1,
+            2,
+            "BUYER A",
+            "JC1561",
+            "PO1001",
+            "BLACK",
+            126
+        ],
+
+        [
+            today,
+            new Date(),
+            1,
+            3,
+            "BUYER A",
+            "JC1561",
+            "PO1001",
+            "BLACK",
+            129
+        ],
+
+        [
+            today,
+            new Date(),
+            1,
+            4,
+            "BUYER A",
+            "JC1561",
+            "PO1001",
+            "BLACK",
+            118
+        ],
+
+        [
+            today,
+            new Date(),
+            2,
+            1,
+            "BUYER B",
+            "NT9418",
+            "PO2001",
+            "NAVY",
+            148
+        ],
+
+        [
+            today,
+            new Date(),
+            2,
+            2,
+            "BUYER B",
+            "NT9418",
+            "PO2001",
+            "NAVY",
+            126
+        ],
+
+        [
+            today,
+            new Date(),
+            3,
+            1,
+            "BUYER A",
+            "LS3615",
+            "PO3001",
+            "WHITE",
+            148
+        ]
+    ];
+
+
+    sheet
+        .getRange(
+            sheet.getLastRow() + 1,
+            1,
+            sample.length,
+            sample[0].length
+        )
+        .setValues(sample);
+
+
+    updateProductionDisplay();
+}
+
+
+/***************************************************************
+ * TEST QUALITY
+ ***************************************************************/
+function addTestQuality() {
+
+    const ss =
+        SpreadsheetApp
+            .getActiveSpreadsheet();
+
+
+    const sheet =
+        ss.getSheetByName(
+            CONFIG.QUALITY_SHEET
+        );
+
+
+    if (!sheet) {
+        return;
+    }
+
+
+    const today =
+        new Date();
+
+
+    const sample = [
+
+        [
+            today,
+            new Date(),
+            1,
+            "BUYER A",
+            "JC1561",
+            "PO1001",
+            500,
+            490,
+            10,
+            "DS01",
+            "Open Seam"
+        ],
+
+        [
+            today,
+            new Date(),
+            1,
+            "BUYER A",
+            "JC1561",
+            "PO1001",
+            500,
+            485,
+            15,
+            "DS02",
+            "Skip Stitch"
+        ],
+
+        [
+            today,
+            new Date(),
+            2,
+            "BUYER B",
+            "NT9418",
+            "PO2001",
+            500,
+            492,
+            8,
+            "DS03",
+            "Broken Stitch"
+        ],
+
+        [
+            today,
+            new Date(),
+            3,
+            "BUYER A",
+            "LS3615",
+            "PO3001",
+            500,
+            480,
+            20,
+            "DS01",
+            "Open Seam"
+        ]
+    ];
+
+
+    sheet
+        .getRange(
+            sheet.getLastRow() + 1,
+            1,
+            sample.length,
+            sample[0].length
+        )
+        .setValues(sample);
+
+
+    updateProductionDisplay();
+}
+
+
+/***************************************************************
+ * CLEAR TODAY'S PRODUCTION
+ *
+ * ONLY today's INPUT rows are removed.
+ * Historical data remains.
+ ***************************************************************/
+function clearTodayProduction() {
+
+    const ss =
+        SpreadsheetApp
+            .getActiveSpreadsheet();
+
+
+    const sheet =
+        ss.getSheetByName(
+            CONFIG.INPUT_SHEET
+        );
+
+
+    if (
+        !sheet ||
+        sheet.getLastRow() < 2
+    ) {
+        return;
+    }
+
+
+    const timezone =
+        ss.getSpreadsheetTimeZone() ||
+        "Asia/Dhaka";
+
+
+    const todayKey =
+        Utilities.formatDate(
+            new Date(),
+            timezone,
+            "yyyy-MM-dd"
+        );
+
+
+    const lastRow =
+        sheet.getLastRow();
+
+
+    const lastCol =
+        Math.max(
+            sheet.getLastColumn(),
+            9
+        );
+
+
+    const data =
+        sheet
+            .getRange(
+                2,
+                1,
+                lastRow - 1,
+                lastCol
+            )
+            .getValues();
+
+
+    const rowsToDelete = [];
+
+
+    data.forEach(
+        (row, index) => {
+
+            if (!row[0]) {
+                return;
+            }
+
+
+            const dateKey =
+                getDateKey_(
+                    row[0],
+                    timezone
+                );
+
+
+            if (
+                dateKey === todayKey
+            ) {
+
+                rowsToDelete.push(
+                    index + 2
+                );
+            }
+        }
+    );
+
+
+    /*
+     * Delete bottom to top.
+     */
+    rowsToDelete
+        .reverse()
+        .forEach(row => {
+
+            sheet.deleteRow(row);
+        });
+
+
+    updateProductionDisplay();
+}
+
+
+/***************************************************************
+ * CREATE 5-MINUTE AUTO REFRESH
+ ***************************************************************/
+function createFiveMinuteTrigger() {
+
+    /*
+     * Remove existing 5-minute update triggers
+     * without touching edit triggers.
+     */
+    const triggers =
+        ScriptApp.getProjectTriggers();
+
+
+    triggers.forEach(trigger => {
+
+        if (
+            trigger.getHandlerFunction() ===
+            "updateProductionDisplay"
+        ) {
+
+            ScriptApp.deleteTrigger(
+                trigger
+            );
+        }
+    });
+
+
+    ScriptApp
+        .newTrigger(
+            "updateProductionDisplay"
+        )
+        .timeBased()
+        .everyMinutes(5)
+        .create();
+
+
+    SpreadsheetApp
+        .getUi()
+        .alert(
+            "Automatic 5-minute dashboard refresh is now active."
+        );
+}
+
+
+/***************************************************************
+ * OPTIONAL INSTALLABLE EDIT TRIGGER
+ ***************************************************************/
+function createEditTrigger() {
+
+    const ss =
+        SpreadsheetApp
+            .getActiveSpreadsheet();
+
+
+    const triggers =
+        ScriptApp.getProjectTriggers();
+
+
+    triggers.forEach(trigger => {
+
+        if (
+            trigger.getHandlerFunction() ===
+            "installedEditHandler"
+        ) {
+
+            ScriptApp.deleteTrigger(
+                trigger
+            );
+        }
+    });
+
+
+    ScriptApp
+        .newTrigger(
+            "installedEditHandler"
+        )
+        .forSpreadsheet(ss)
+        .onEdit()
+        .create();
+
+
+    SpreadsheetApp
+        .getUi()
+        .alert(
+            "Installable edit trigger created successfully."
+        );
+}
+
+
+/***************************************************************
+ * NORMALIZE LINE / HOUR
+ *
+ * Converts:
+ *   Line 1   -> 1
+ *   LINE3    -> 3
+ *   L5       -> 5
+ *   H11      -> 11
+ *   Hour 5   -> 5
+ *   H-7      -> 7
+ *   07       -> 7
+ *
+ * Returns blank when no number is found.
+ ***************************************************************/
+function normalizeNumber_(value) {
+
+    if (
+        value === null ||
+        value === undefined ||
+        value === ""
+    ) {
+        return "";
+    }
+
+    // Already a number
+    if (
+        typeof value === "number" &&
+        !isNaN(value)
+    ) {
+        return value;
+    }
+
+    // Convert text
+    const text = String(value).trim();
+
+    if (!text) {
+        return "";
+    }
+
+    // Extract number from anywhere in text
+    const match = text.match(/\d+/);
+
+    if (!match) {
+        return "";
+    }
+
+    return Number(match[0]);
+}
+
+
+
+
+/***************************************************************
+ * INSTALLABLE EDIT HANDLER
+ ***************************************************************/
+function installedEditHandler(e) {
+
+    try {
+
+        onEdit(e);
+
+    } catch (err) {
+
+        console.error(
+            "installedEditHandler ERROR: " +
+            err.message +
+            "\nStack: " +
+            err.stack
+        );
+    }
+}
+/***************************************************************
+ * CLEAN + LOCK LINE / HOUR COLUMNS
+ *
+ * ONE-CLICK FUNCTION
+ *
+ * INPUT:
+ *   C = LINE  → 1 to 14 only
+ *   D = HOUR  → 1 to 11 only
+ *
+ * QUALITY INPUT:
+ *   C = LINE  → 1 to 14 only
+ *
+ * APP/DASHBOARD:
+ *   Line 1, Line 2, ... Line 14
+ *
+ * GOOGLE SHEET:
+ *   1, 2, ... 14
+ *
+ * Converts existing values:
+ *
+ *   Line 1  → 1
+ *   Line 2  → 2
+ *   LINE3   → 3
+ *   LINE 14 → 14
+ *   L5      → 5
+ *
+ * After conversion, ONLY numeric values are accepted.
+ ***************************************************************/
+function cleanAndLockLineHourColumns() {
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    const INPUT_SHEET = "INPUT";
+    const QUALITY_SHEET = "QUALITY INPUT";
+
+
+    /***********************************************************
+     * LOCAL NUMBER CONVERTER
+     ***********************************************************/
+    function extractNumber(value) {
+
+        if (
+            value === null ||
+            value === undefined ||
+            value === ""
+        ) {
+            return "";
+        }
+
+        // Already a number
+        if (typeof value === "number") {
+
+            if (isNaN(value)) {
+                return "";
+            }
+
+            return value;
+        }
+
+        // Convert text such as:
+        // Line 1 → 1
+        // LINE3 → 3
+        // L5 → 5
+        const text = String(value).trim();
+
+        if (!text) {
+            return "";
+        }
+
+        // Find first number anywhere in text
+        const match = text.match(/\d+/);
+
+        if (!match) {
+            return "";
+        }
+
+        return Number(match[0]);
+    }
+
+
+    /***********************************************************
+     * INPUT SHEET
+     ***********************************************************/
+    const input = ss.getSheetByName(INPUT_SHEET);
+
+    if (!input) {
+        throw new Error(
+            'Sheet "' + INPUT_SHEET + '" was not found.'
+        );
+    }
+
+
+    const inputLastRow =
+        Math.max(input.getLastRow(), 2);
+
+    const inputRows =
+        inputLastRow - 1;
+
+
+    /***********************************************************
+     * INPUT — COLUMN C — LINE
+     *
+     * APP SENDS:
+     *   Line 1
+     *   Line 5
+     *   Line 14
+     *
+     * SHEET STORES:
+     *   1
+     *   5
+     *   14
+     ***********************************************************/
+    const inputLineRange =
+        input.getRange(
+            2,
+            3,
+            inputRows,
+            1
+        );
+
+    const inputLineValues =
+        inputLineRange.getValues();
+
+    const cleanedInputLines =
+        inputLineValues.map(function (row) {
+
+            const value =
+                extractNumber(row[0]);
+
+            /*
+             * Only accept valid production lines.
+             * Anything outside 1–14 becomes blank.
+             */
+            if (
+                value === "" ||
+                value < 1 ||
+                value > 14
+            ) {
+                return [""];
+            }
+
+            // Store as NUMBER, never "Line 1"
+            return [Number(value)];
+        });
+
+    inputLineRange.setValues(
+        cleanedInputLines
+    );
+
+
+    /***********************************************************
+     * INPUT — COLUMN D — HOUR
+     ***********************************************************/
+    const inputHourRange =
+        input.getRange(
+            2,
+            4,
+            inputRows,
+            1
+        );
+
+    const inputHourValues =
+        inputHourRange.getValues();
+
+    const cleanedInputHours =
+        inputHourValues.map(function (row) {
+
+            const value =
+                extractNumber(row[0]);
+
+            /*
+             * Only accept valid production hours.
+             * Anything outside 1–11 becomes blank.
+             */
+            if (
+                value === "" ||
+                value < 1 ||
+                value > 11
+            ) {
+                return [""];
+            }
+
+            return [Number(value)];
+        });
+
+    inputHourRange.setValues(
+        cleanedInputHours
+    );
+
+
+    /***********************************************************
+     * STRICT VALIDATION — INPUT LINE
+     *
+     * IMPORTANT:
+     * SHEET ACCEPTS NUMBERS ONLY.
+     * 1–14
+     ***********************************************************/
+    const lineRule =
+        SpreadsheetApp.newDataValidation()
+            .requireNumberBetween(1, 14)
+            .setAllowInvalid(false)
+            .setHelpText(
+                "Enter Line number only: 1 to 14."
+            )
+            .build();
+
+    input
+        .getRange(
+            2,
+            3,
+            Math.max(input.getMaxRows() - 1, 1),
+            1
+        )
+        .setDataValidation(lineRule);
+
+
+    /***********************************************************
+     * STRICT VALIDATION — INPUT HOUR
+     ***********************************************************/
+    const hourRule =
+        SpreadsheetApp.newDataValidation()
+            .requireNumberBetween(1, 11)
+            .setAllowInvalid(false)
+            .setHelpText(
+                "Enter Hour number only: 1 to 11."
+            )
+            .build();
+
+    input
+        .getRange(
+            2,
+            4,
+            Math.max(input.getMaxRows() - 1, 1),
+            1
+        )
+        .setDataValidation(hourRule);
+
+
+    /***********************************************************
+     * QUALITY INPUT
+     ***********************************************************/
+    const quality =
+        ss.getSheetByName(QUALITY_SHEET);
+
+    if (quality) {
+
+        const qualityLastRow =
+            Math.max(quality.getLastRow(), 2);
+
+        const qualityRows =
+            qualityLastRow - 1;
+
+
+        /*******************************************************
+         * QUALITY — COLUMN C — LINE
+         *
+         * APP:
+         *   Line 1
+         *
+         * SHEET:
+         *   1
+         *******************************************************/
+        const qualityLineRange =
+            quality.getRange(
+                2,
+                3,
+                qualityRows,
+                1
+            );
+
+        const qualityLineValues =
+            qualityLineRange.getValues();
+
+        const cleanedQualityLines =
+            qualityLineValues.map(function (row) {
+
+                const value =
+                    extractNumber(row[0]);
+
+                if (
+                    value === "" ||
+                    value < 1 ||
+                    value > 14
+                ) {
+                    return [""];
+                }
+
+                // Store as NUMBER
+                return [Number(value)];
+            });
+
+        qualityLineRange.setValues(
+            cleanedQualityLines
+        );
+
+
+        /*******************************************************
+         * STRICT VALIDATION — QUALITY LINE
+         *
+         * NUMBERS ONLY: 1–14
+         *******************************************************/
+        const qualityLineRule =
+            SpreadsheetApp.newDataValidation()
+                .requireNumberBetween(1, 14)
+                .setAllowInvalid(false)
+                .setHelpText(
+                    "Enter Line number only: 1 to 14."
+                )
+                .build();
+
+        quality
+            .getRange(
+                2,
+                3,
+                Math.max(quality.getMaxRows() - 1, 1),
+                1
+            )
+            .setDataValidation(
+                qualityLineRule
+            );
+    }
+
+
+    /***********************************************************
+     * FINISH
+     ***********************************************************/
+    SpreadsheetApp.flush();
+
+
+    // Refresh dashboard if your function exists
+    try {
+        updateProductionDisplay();
+    } catch (err) {
+        console.log(
+            "Dashboard refresh skipped: " +
+            err.message
+        );
+    }
+
+
+    SpreadsheetApp.getUi().alert(
+        "LINE / HOUR CLEANUP COMPLETE\n\n" +
+        "INPUT Column C → Numeric Line 1–14\n" +
+        "INPUT Column D → Numeric Hour 1–11\n" +
+        "QUALITY INPUT Column C → Numeric Line 1–14\n\n" +
+        "App format: Line 1, Line 2, etc.\n" +
+        "Sheet format: 1, 2, 3, etc.\n\n" +
+        "Existing text values have been converted to numbers."
+    );
+}
+/***************************************************************
+ * SINGLE SIMPLE EDIT HANDLER — NORMALIZES LINE / HOUR VALUES
+ ***************************************************************/
+function onEdit(e) {
+    if (!e || !e.range) return;
+
+    const sheet = e.range.getSheet();
+    const row = e.range.getRow();
+    const col = e.range.getColumn();
+
+    // Ignore header
+    if (row < 2) return;
+
+    const sheetName = sheet.getName();
+
+    // INPUT: Column C = Line, Column D = Hour
+    if (sheetName === "INPUT") {
+
+        // LINE — Column C
+        if (col === 3) {
+            const value = e.range.getValue();
+
+            if (value !== "" && value !== null) {
+                const match = String(value).match(/\d+/);
+
+                if (match) {
+                    const line = Number(match[0]);
+
+                    if (line >= 1 && line <= 14) {
+                        e.range.setValue(line);
+                    }
+                }
+            }
+        }
+
+        // HOUR — Column D
+        if (col === 4) {
+            const value = e.range.getValue();
+
+            if (value !== "" && value !== null) {
+                const match = String(value).match(/\d+/);
+
+                if (match) {
+                    const hour = Number(match[0]);
+
+                    if (hour >= 1 && hour <= 11) {
+                        e.range.setValue(hour);
+                    }
+                }
+            }
+        }
+    }
+
+
+    // QUALITY INPUT: Column C = Line
+    if (sheetName === "QUALITY INPUT" && col === 3) {
+
+        const value = e.range.getValue();
+
+        if (value !== "" && value !== null) {
+            const match = String(value).match(/\d+/);
+
+            if (match) {
+                const line = Number(match[0]);
+
+                if (line >= 1 && line <= 14) {
+                    e.range.setValue(line);
+                }
+            }
+        }
+    }
+}
+/***************************************************************
+ * CONVERT LINE + HOUR TO NUMBERS
+ *
+ * Applies to:
+ *   1. INPUT
+ *   2. QUALITY INPUT
+ *
+ * DISPLAY FROM VERCEL:
+ *   Line 1
+ *   Line 2
+ *   ...
+ *   Line 14
+ *
+ * STORED IN GOOGLE SHEETS:
+ *   1
+ *   2
+ *   ...
+ *   14
+ *
+ * HOUR:
+ *   H1  -> 1
+ *   H2  -> 2
+ *   ...
+ *   H11 -> 11
+ ***************************************************************/
+
+function convertAllLineHourValues() {
+
+    var ss = SpreadsheetApp.getActiveSpreadsheet();
+
+    var sheetNames = [
+        'INPUT',
+        'QUALITY INPUT'
+    ];
+
+    sheetNames.forEach(function (sheetName) {
+
+        var sheet = ss.getSheetByName(sheetName);
+
+        if (!sheet) {
+            Logger.log('Sheet not found: ' + sheetName);
+            return;
+        }
+
+        var lastRow = sheet.getLastRow();
+        var lastColumn = sheet.getLastColumn();
+
+        if (lastRow < 2) {
+            Logger.log('No data in: ' + sheetName);
+            return;
+        }
+
+        /***********************************************************
+         * FIND HEADER COLUMNS
+         ***********************************************************/
+
+        var headers = sheet
+            .getRange(1, 1, 1, lastColumn)
+            .getValues()[0];
+
+        var lineColumn = -1;
+        var hourColumn = -1;
+
+        headers.forEach(function (header, index) {
+
+            var headerName = String(header)
+                .trim()
+                .toLowerCase();
+
+            if (headerName === 'line') {
+                lineColumn = index + 1;
+            }
+
+            if (headerName === 'hour') {
+                hourColumn = index + 1;
+            }
+
+        });
+
+        /***********************************************************
+         * CONVERT LINE
+         ***********************************************************/
+
+        if (lineColumn !== -1) {
+
+            convertLineHourColumn_(
+                sheet,
+                lineColumn,
+                2,
+                lastRow,
+                1,
+                14
+            );
+
+            Logger.log(
+                sheetName + ': Line column converted.'
+            );
+        }
+
+        /***********************************************************
+         * CONVERT HOUR
+         ***********************************************************/
+
+        if (hourColumn !== -1) {
+
+            convertLineHourColumn_(
+                sheet,
+                hourColumn,
+                2,
+                lastRow,
+                1,
+                11
+            );
+
+            Logger.log(
+                sheetName + ': Hour column converted.'
+            );
+        }
+
+    });
+
+    SpreadsheetApp.flush();
+
+    Logger.log(
+        'DONE: INPUT and QUALITY INPUT converted.'
+    );
+}
+
+
+/***************************************************************
+ * HELPER FUNCTION
+ ***************************************************************/
+
+function convertLineHourColumn_(
+    sheet,
+    column,
+    startRow,
+    lastRow,
+    minimum,
+    maximum
+) {
+
+    var rowCount = lastRow - startRow + 1;
+
+    if (rowCount <= 0) return;
+
+    var range = sheet.getRange(
+        startRow,
+        column,
+        rowCount,
+        1
+    );
+
+    var values = range.getValues();
+
+    var convertedValues = values.map(function (row) {
+
+        var value = row[0];
+
+        /***********************************************************
+         * EMPTY CELL
+         ***********************************************************/
+
+        if (
+            value === '' ||
+            value === null ||
+            value === undefined
+        ) {
+            return [''];
+        }
+
+        /***********************************************************
+         * ALREADY NUMBER
+         ***********************************************************/
+
+        if (typeof value === 'number') {
+
+            if (
+                value >= minimum &&
+                value <= maximum
+            ) {
+                return [value];
+            }
+
+            return [''];
+        }
+
+        /***********************************************************
+         * TEXT VALUE
+         *
+         * Examples:
+         * Line 1
+         * Line 11
+         * LINE3
+         * LINE 14
+         * L5
+         * H1
+         * H10
+         * Hour 5
+         ***********************************************************/
+
+        var text = String(value).trim();
+
+        var match = text.match(/\d+/);
+
+        if (!match) {
+            return [''];
+        }
+
+        var numberValue = Number(match[0]);
+
+        /***********************************************************
+         * VALID RANGE
+         ***********************************************************/
+
+        if (
+            numberValue >= minimum &&
+            numberValue <= maximum
+        ) {
+            return [numberValue];
+        }
+
+        return [''];
+
+    });
+
+    /*************************************************************
+     * WRITE BACK AS NUMBERS
+     *************************************************************/
+
+    range.setValues(convertedValues);
+
+    /*************************************************************
+     * NUMBER FORMAT
+     *************************************************************/
+
+    range.setNumberFormat('0');
+}
+
+
+/***************************************************************
+ * LIVE CONTROL TOWER API — MERGED INTO THIS SINGLE Code.gs FILE
+ * Original production/quality system above; API integration below.
+ ***************************************************************/
+
+/***************************************************************
+ * BENCHMARK EXPORTS — LIVE PRODUCTION CONTROL TOWER
+ * MERGED SINGLE-FILE VERSION: append this API section to the original Code.gs.
+ * The complete file includes the original production system and these API handlers.
+ * It owns the single active doGet/doPost API entry points.
+ *
+ * API actions:
+ *   GET  ?action=dashboard&date=YYYY-MM-DD&token=...
+ *   GET  ?action=quality&date=YYYY-MM-DD&token=...
+ *   GET  ?action=targets&token=...
+ *   POST {token, action, ...payload}
+ *
+ * Main TV = PRODUCTION ONLY.
+ * IMPORTANT: The whole Apps Script project must contain exactly one doGet and one doPost.
+ * Rename older entry points in other files to legacyOldDoGet / legacyOldDoPost.
+ * Do not leave any other active function named doGet or doPost.
+ * Quality has a separate /quality page in the Vercel app.
+ ***************************************************************/
+
+const CT_CONFIG = {
+    INPUT_SHEET: 'INPUT',
+    QUALITY_SHEET: 'QUALITY INPUT',
+    SETUP_SHEET: 'SETUP',
+    LINE_SHEET: 'LINE MASTER',
+    AUDIT_SHEET: 'CONTROL TOWER LOG',
+    NUMBER_OF_LINES: 14,
+    NUMBER_OF_HOURS: 11,
+    INPUT_REQUEST_ID_COL: 10,
+    QUALITY_REQUEST_ID_COL: 12,
+    DEFAULT_WORK_MINUTES: 660,
+    DEFAULT_EFFICIENCY_TARGET: 55,
+    POLL_VERSION_KEY: 'CT_DATA_VERSION',
+    LAST_UPDATED_KEY: 'CT_LAST_UPDATED',
+    SPREADSHEET_ID_KEY: 'CT_SPREADSHEET_ID',
+    API_TOKEN_KEY: 'CT_API_TOKEN'
+};
+
+/** Run once from the spreadsheet's Apps Script editor. */
+function setupEnterpriseControlTower() {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    if (!ss) {
+        throw new Error('Open this Apps Script project from the target Google Sheet.');
+    }
+
+    // Bootstrap the original production workbook when one or more base tabs are absent.
+    // createProductionSystem() is included earlier in this merged Code.gs file.
+    const requiredBaseTabs = [
+        CT_CONFIG.INPUT_SHEET,
+        CT_CONFIG.QUALITY_SHEET,
+        CT_CONFIG.SETUP_SHEET,
+        'Benchmark Exports'
+    ];
+    const missingBaseTabs = requiredBaseTabs.filter(name => !ss.getSheetByName(name));
+
+    if (missingBaseTabs.length) {
+        if (typeof createProductionSystem !== 'function') {
+            throw new Error(
+                'Base production sheets are missing (' + missingBaseTabs.join(', ') +
+                '). The original createProductionSystem() function must be included in Code.gs.'
+            );
+        }
+        createProductionSystem();
+    }
+
+    const input = ss.getSheetByName(CT_CONFIG.INPUT_SHEET);
+    const quality = ss.getSheetByName(CT_CONFIG.QUALITY_SHEET);
+    const setup = ss.getSheetByName(CT_CONFIG.SETUP_SHEET);
+
+    if (!input || !quality || !setup) {
+        throw new Error('Could not initialize INPUT, QUALITY INPUT and SETUP. Check the original production-system functions.');
+    }
+
+    // Reapply the original non-destructive sheet repairs. These functions add
+    // missing headers/formatting and preserve existing production records.
+    if (typeof repairInputSheet_ === 'function') repairInputSheet_(input);
+    if (typeof repairQualitySheet_ === 'function') repairQualitySheet_(quality);
+    if (typeof repairSetupSheet_ === 'function') repairSetupSheet_(setup);
+
+    // Ensure the expected base columns exist without clearing or moving existing records.
+    ctEnsureBaseHeaders_(input, [
+        'Date', 'Time', 'Line', 'Hour', 'Buyer',
+        'Style', 'PO', 'Color', 'PCS'
+    ]);
+    ctEnsureBaseHeaders_(quality, [
+        'Date', 'Time', 'Line', 'Buyer', 'Style', 'PO',
+        'Checked PCS', 'Pass PCS', 'Defect PCS',
+        'Defect Code', 'Defect Description'
+    ]);
+
+    // Request IDs are appended after the original columns for safe retry handling.
+    ctEnsureHeader_(input, CT_CONFIG.INPUT_REQUEST_ID_COL, 'Request ID');
+    ctEnsureHeader_(quality, CT_CONFIG.QUALITY_REQUEST_ID_COL, 'Request ID');
+
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty(CT_CONFIG.SPREADSHEET_ID_KEY, ss.getId());
+
+    // These functions create the support tabs if they are not already present.
+    ctSetupLineMaster_(ss);
+    ctSetupAudit_(ss);
+
+    // Keep the existing API token so a routine setup does not unexpectedly break Vercel.
+    let token = props.getProperty(CT_CONFIG.API_TOKEN_KEY);
+    if (!token) {
+        token = [Utilities.getUuid(), Utilities.getUuid(), Utilities.getUuid()]
+            .join('')
+            .replace(/-/g, '');
+        props.setProperty(CT_CONFIG.API_TOKEN_KEY, token);
+    }
+
+    // Replace only this add-on's own triggers.
+    ScriptApp.getProjectTriggers().forEach(trigger => {
+        const handler = trigger.getHandlerFunction();
+        if (
+            handler === 'enterpriseScheduledRefresh' ||
+            handler === 'enterpriseHandleSheetEdit'
+        ) {
+            ScriptApp.deleteTrigger(trigger);
+        }
+    });
+
+    ScriptApp.newTrigger('enterpriseScheduledRefresh')
+        .timeBased()
+        .everyMinutes(5)
+        .create();
+
+    ScriptApp.newTrigger('enterpriseHandleSheetEdit')
+        .forSpreadsheet(ss)
+        .onEdit()
+        .create();
+
+    props.setProperty(CT_CONFIG.LAST_UPDATED_KEY, new Date().toISOString());
+    ctBumpVersion_();
+    SpreadsheetApp.flush();
+
+    // Refresh the existing spreadsheet dashboard if its original function exists.
+    if (typeof updateProductionDisplay === 'function') {
+        try {
+            updateProductionDisplay();
+        } catch (err) {
+            console.error('Original dashboard refresh failed: ' + err.message);
+        }
+    }
+
+    SpreadsheetApp.getUi().alert(
+        'CONTROL TOWER SETUP COMPLETE\n\n' +
+        'INPUT: Ready\n' +
+        'QUALITY INPUT: Ready\n' +
+        'SETUP: Ready\n' +
+        'LINE MASTER: Ready\n' +
+        'CONTROL TOWER LOG: Ready\n\n' +
+        'Automatic refresh: every 5 minutes\n' +
+        'Vercel live sync: every 5 seconds\n\n' +
+        'APPS_SCRIPT_TOKEN (keep private):\n\n' + token
+    );
+}
+
+/** Add missing base headers while preserving all existing rows and values. */
+function ctEnsureBaseHeaders_(sheet, headers) {
+    const width = Math.max(sheet.getLastColumn(), headers.length);
+    const existing = sheet.getRange(1, 1, 1, width).getDisplayValues()[0];
+
+    headers.forEach((header, index) => {
+        const current = String(existing[index] || '').trim();
+        if (!current) {
+            sheet.getRange(1, index + 1).setValue(header);
+        } else if (current.toLowerCase() !== header.toLowerCase()) {
+            throw new Error(
+                'Header mismatch in sheet "' + sheet.getName() + '", column ' +
+                (index + 1) + '. Expected "' + header + '" but found "' + current + '".'
+            );
+        }
+    });
+
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, 1, headers.length)
+        .setBackground('#10233f')
+        .setFontColor('#ffffff')
+        .setFontWeight('bold');
+}
+
+/** Optional token rotation. Run only if the current token is compromised. */
+function rotateEnterpriseApiToken() {
+    const token = [Utilities.getUuid(), Utilities.getUuid(), Utilities.getUuid()].join('-').replace(/-/g, '');
+    PropertiesService.getScriptProperties().setProperty(CT_CONFIG.API_TOKEN_KEY, token);
+    SpreadsheetApp.getUi().alert('New API token:\n\n' + token + '\n\nUpdate APPS_SCRIPT_TOKEN in Vercel immediately.');
+}
+
+function ctSetupLineMaster_(ss) {
+    let sh = ss.getSheetByName(CT_CONFIG.LINE_SHEET);
+    if (!sh) sh = ss.insertSheet(CT_CONFIG.LINE_SHEET);
+    const headers = [
+        'Line', 'Active', 'Daily Target', 'SMV', 'Manpower', 'Efficiency Target %', 'DHU Target %', 'Working Minutes',
+        'Default Buyer', 'Default Style', 'Default PO', 'Default Color',
+        'H1 Target', 'H2 Target', 'H3 Target', 'H4 Target', 'H5 Target', 'H6 Target', 'H7 Target', 'H8 Target', 'H9 Target', 'H10 Target', 'H11 Target'
+    ];
+    if (sh.getLastRow() === 0) sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    else {
+        const old = sh.getRange(1, 1, 1, Math.max(sh.getLastColumn(), headers.length)).getValues()[0];
+        headers.forEach((h, i) => { if (!old[i]) sh.getRange(1, i + 1).setValue(h); });
+    }
+    const existing = sh.getLastRow() >= 2 ? sh.getRange(2, 1, sh.getLastRow() - 1, headers.length).getValues() : [];
+    const byLine = {};
+    existing.forEach(r => { const n = Number(r[0]); if (n >= 1 && n <= CT_CONFIG.NUMBER_OF_LINES) byLine[n] = r; });
+    const rows = [];
+    for (let line = 1; line <= CT_CONFIG.NUMBER_OF_LINES; line++) {
+        const r = byLine[line] || [];
+        const row = new Array(headers.length).fill('');
+        row[0] = line;
+        row[1] = r[1] === false ? false : true;
+        row[2] = r[2] || '';
+        row[3] = r[3] || '';
+        row[4] = r[4] || '';
+        row[5] = r[5] !== '' && r[5] != null ? r[5] : CT_CONFIG.DEFAULT_EFFICIENCY_TARGET;
+        row[6] = r[6] || '';
+        row[7] = r[7] || CT_CONFIG.DEFAULT_WORK_MINUTES;
+        for (let c = 8; c < headers.length; c++) row[c] = r[c] == null ? '' : r[c];
+        rows.push(row);
+    }
+    sh.getRange(2, 1, rows.length, headers.length).setValues(rows);
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, 1, headers.length).setBackground('#10233f').setFontColor('#ffffff').setFontWeight('bold');
+    sh.getRange(2, 1, rows.length, 1).setNumberFormat('0');
+    sh.getRange(2, 3, rows.length, 3).setNumberFormat('0.00');
+    sh.getRange(2, 6, rows.length, 2).setNumberFormat('0.0');
+    sh.autoResizeColumns(1, headers.length);
+}
+
+function ctSetupAudit_(ss) {
+    let sh = ss.getSheetByName(CT_CONFIG.AUDIT_SHEET);
+    if (!sh) sh = ss.insertSheet(CT_CONFIG.AUDIT_SHEET);
+    const headers = ['Timestamp', 'Action', 'Line', 'Hour', 'Quantity', 'Request ID', 'Source', 'Details'];
+    if (sh.getLastRow() === 0) sh.getRange(1, 1, 1, headers.length).setValues([headers]);
+    sh.setFrozenRows(1);
+    sh.getRange(1, 1, 1, headers.length).setBackground('#10233f').setFontColor('#ffffff').setFontWeight('bold');
+}
+
+function ctEnsureHeader_(sheet, col, header) {
+    if (sheet.getMaxColumns() < col) sheet.insertColumnsAfter(sheet.getMaxColumns(), col - sheet.getMaxColumns());
+    const cell = sheet.getRange(1, col);
+    if (!cell.getValue()) cell.setValue(header);
+}
+
+/**
+ * API ENTRY POINTS
+ *
+ * IMPORTANT:
+ * - This project must contain exactly ONE active function named doGet and ONE named doPost.
+ * - These active handlers live in this EnterpriseApi.gs file.
+ * - Rename every older handler in other files to legacyOldDoGet / legacyOldDoPost.
+ * - Do not leave duplicate active doGet/doPost declarations anywhere in the project.
+ *
+ * GET examples:
+ *   ?action=health&token=YOUR_TOKEN
+ *   ?action=dashboard&date=2026-11-02&token=YOUR_TOKEN
+ *   ?action=quality&date=2026-11-02&token=YOUR_TOKEN
+ *   ?action=targets&token=YOUR_TOKEN
+ *
+ * Successful responses always use { ok: true, data: ... }.
+ * Errors always use { ok: false, error: "..." }.
+ */
+function doGet(e) {
+    const params = (e && e.parameter) ? e.parameter : {};
+    // Never fall back to an old health-check handler. Every request to this
+    // Web App must use the Control Tower { ok, data } / { ok, error } envelope.
+    return enterpriseApiGet_(params);
+}
+
+/** Handle API GET requests and always return the { ok, data } envelope. */
+function enterpriseApiGet_(params) {
+    try {
+        ctAuthorize_(params.token);
+        const action = String(params.action || 'dashboard').toLowerCase();
+        let result;
+
+        if (action === 'health') {
+            result = {
+                system: 'BENCHMARK_EXPORTS_CONTROL_TOWER',
+                status: 'connected',
+                timestamp: new Date().toISOString()
+            };
+        } else if (action === 'dashboard') {
+            result = enterpriseGetDashboard(params.date);
+        } else if (action === 'quality') {
+            result = enterpriseGetQuality(params.date);
+        } else if (action === 'targets') {
+            result = enterpriseGetTargets();
+        } else {
+            throw new Error('Unknown GET action: ' + action);
+        }
+
+        return ctJson_({ ok: true, data: result });
+    } catch (err) {
+        return ctJson_({ ok: false, error: err && err.message ? err.message : String(err) });
+    }
+}
+
+/** Active API POST entry point. */
+function doPost(e) {
+    let body;
+    try {
+        body = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    } catch (err) {
+        return ctJson_({ ok: false, error: 'Request body must be valid JSON.' });
+    }
+    return enterpriseApiPost_(body);
+}
+
+/** Handle API POST requests and always return the { ok, data } envelope. */
+function enterpriseApiPost_(body) {
+    try {
+        ctAuthorize_(body.token);
+        const action = String(body.action || '').toLowerCase();
+        let result;
+
+        if (action === 'production.save') {
+            result = enterpriseSaveProduction(body);
+        } else if (action === 'quality.save') {
+            result = enterpriseSaveQuality(body);
+        } else if (action === 'targets.save') {
+            result = enterpriseSaveTargets(body);
+        } else {
+            throw new Error('Unknown POST action: ' + action);
+        }
+
+        return ctJson_({ ok: true, data: result });
+    } catch (err) {
+        return ctJson_({ ok: false, error: err && err.message ? err.message : String(err) });
+    }
+}
+
+function ctJson_(obj) {
+    return ContentService.createTextOutput(JSON.stringify(obj)).setMimeType(ContentService.MimeType.JSON);
+}
+
+function ctAuthorize_(token) {
+    const expected = PropertiesService.getScriptProperties().getProperty(CT_CONFIG.API_TOKEN_KEY);
+    if (!expected) throw new Error('API is not initialized. Run setupEnterpriseControlTower() first.');
+    if (!token || String(token) !== expected) throw new Error('Unauthorized API request.');
+}
+
+function ctSpreadsheet_() {
+    const id = PropertiesService.getScriptProperties().getProperty(CT_CONFIG.SPREADSHEET_ID_KEY);
+    if (!id) throw new Error('Spreadsheet ID missing. Run setupEnterpriseControlTower() first.');
+    return SpreadsheetApp.openById(id);
+}
+
+function ctLineRows_() {
+    const sh = ctSpreadsheet_().getSheetByName(CT_CONFIG.LINE_SHEET);
+    if (!sh || sh.getLastRow() < 2) throw new Error('LINE MASTER is missing. Run setupEnterpriseControlTower().');
+    const values = sh.getRange(2, 1, Math.min(CT_CONFIG.NUMBER_OF_LINES, sh.getLastRow() - 1), 23).getValues();
+    const map = {};
+    values.forEach(r => {
+        const line = Number(r[0]);
+        if (!line) return;
+        const custom = r.slice(12, 23).map(v => v === '' || v == null ? null : Number(v));
+        const hasCustom = custom.some(v => v != null && isFinite(v));
+        const daily = Number(r[2]) || (hasCustom ? custom.reduce((sum, v) => sum + (Number(v) || 0), 0) : 0);
+        const hourly = hasCustom ? custom.map(v => v == null ? 0 : v) : custom.map(() => null);
+        map[line] = {
+            line,
+            active: r[1] !== false && String(r[1]).toLowerCase() !== 'false',
+            dailyTarget: daily,
+            smv: Number(r[3]) || 0,
+            manpower: Number(r[4]) || 0,
+            efficiencyTarget: Number(r[5]) || 0,
+            dhuTarget: Number(r[6]) || 0,
+            workingMinutes: Number(r[7]) || CT_CONFIG.DEFAULT_WORK_MINUTES,
+            buyer: String(r[8] || ''), style: String(r[9] || ''), po: String(r[10] || ''), color: String(r[11] || ''),
+            hourlyTargets: hourly,
+            hasCustomHourlyTargets: hasCustom
+        };
+    });
+    for (let line = 1; line <= CT_CONFIG.NUMBER_OF_LINES; line++) if (!map[line]) map[line] = { line, active: true, dailyTarget: 0, smv: 0, manpower: 0, efficiencyTarget: 0, dhuTarget: 0, workingMinutes: CT_CONFIG.DEFAULT_WORK_MINUTES, buyer: '', style: '', po: '', color: '', hourlyTargets: Array(11).fill(0), hasCustomHourlyTargets: false };
+    return map;
+}
+
+function enterpriseGetTargets() {
+    const lines = ctLineRows_();
+    return { lines: Object.keys(lines).map(k => lines[k]).sort((a, b) => a.line - b.line), timestamp: new Date().toISOString() };
+}
+
+function enterpriseGetDashboard(dateString) {
+    const ss = ctSpreadsheet_();
+    const tz = ss.getSpreadsheetTimeZone() || 'Asia/Dhaka';
+    const dateKey = ctDateKeyFromInput_(dateString, tz);
+    const cache = CacheService.getScriptCache();
+    const versionNow = PropertiesService.getScriptProperties().getProperty(CT_CONFIG.POLL_VERSION_KEY) || '1';
+    const cacheKey = 'ct_dash_' + dateKey + '_' + versionNow;
+    const cached = cache.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+    const input = ss.getSheetByName(CT_CONFIG.INPUT_SHEET);
+    if (!input) throw new Error('INPUT sheet not found.');
+    const configs = ctLineRows_();
+    const lines = {};
+    for (let n = 1; n <= CT_CONFIG.NUMBER_OF_LINES; n++) {
+        const c = configs[n];
+        const displayTargets = c.hasCustomHourlyTargets ? c.hourlyTargets.map(v => Number(v) || 0) : Array(11).fill(c.dailyTarget > 0 ? c.dailyTarget / 11 : 0);
+        lines[n] = Object.assign({}, c, { hourlyTargets: displayTargets, hourlyActual: Array(11).fill(0), actual: 0, maxHour: 0, buyers: [], styles: [], pos: [], achievement: 0, gap: 0, paceTarget: 0, paceAchievement: 0, efficiency: null, earnedMinutes: 0, availableMinutes: 0, status: c.dailyTarget > 0 ? 'WAITING' : 'SET TARGET' });
+    }
+
+    const lastRow = input.getLastRow();
+    let latestMs = 0;
+    if (lastRow >= 2) {
+        const rows = input.getRange(2, 1, lastRow - 1, Math.max(9, input.getLastColumn())).getValues();
+        rows.forEach(r => {
+            if (!r[0] || ctDateKey_(r[0], tz) !== dateKey) return;
+            const line = Number(r[2]), hour = Number(r[3]), pcs = Number(r[8]) || 0;
+            if (!lines[line] || hour < 1 || hour > 11) return;
+            const item = lines[line];
+            item.hourlyActual[hour - 1] += pcs;
+            item.actual += pcs;
+            item.maxHour = Math.max(item.maxHour, hour);
+            const buyer = String(r[4] || '').trim(), style = String(r[5] || '').trim(), po = String(r[6] || '').trim();
+            if (buyer && item.buyers.indexOf(buyer) < 0) item.buyers.push(buyer);
+            if (style && item.styles.indexOf(style) < 0) item.styles.push(style);
+            if (po && item.pos.indexOf(po) < 0) item.pos.push(po);
+            const stamp = ctCombineDateTime_(r[0], r[1]);
+            if (stamp && stamp.getTime() > latestMs) latestMs = stamp.getTime();
+        });
+    }
+
+    const active = Object.values(lines).filter(x => x.active);
+    const currentHour = Math.max.apply(null, active.map(x => x.maxHour).concat([0]));
+    let totalTarget = 0, totalActual = 0, totalEarned = 0, totalAvailable = 0, belowTarget = 0;
+    const hourly = Array.from({ length: 11 }, (_, i) => ({ hour: i + 1, target: 0, actual: 0, gap: 0 }));
+    active.forEach(line => {
+        totalTarget += line.dailyTarget;
+        totalActual += line.actual;
+        line.gap = line.actual - line.dailyTarget;
+        line.achievement = line.dailyTarget > 0 ? line.actual / line.dailyTarget * 100 : 0;
+        line.earnedMinutes = line.actual * line.smv;
+        line.availableMinutes = line.manpower > 0 && currentHour > 0 ? line.manpower * Math.min(currentHour * 60, line.workingMinutes) : 0;
+        line.efficiency = line.availableMinutes > 0 && line.smv > 0 ? line.earnedMinutes / line.availableMinutes * 100 : null;
+        for (let h = 0; h < 11; h++) {
+            hourly[h].target += Number(line.hourlyTargets[h]) || 0;
+            hourly[h].actual += line.hourlyActual[h];
+        }
+        totalEarned += line.earnedMinutes;
+        totalAvailable += line.availableMinutes;
+    });
+    hourly.forEach(h => h.gap = h.actual - h.target);
+    active.forEach(line => {
+        line.paceTarget = line.hourlyTargets.slice(0, currentHour).reduce((sum, v) => sum + (Number(v) || 0), 0);
+        line.paceAchievement = line.paceTarget > 0 ? line.actual / line.paceTarget * 100 : 0;
+        if (line.dailyTarget <= 0 && line.paceTarget <= 0) line.status = 'SET TARGET';
+        else if (currentHour === 0) line.status = 'WAITING';
+        else line.status = line.actual >= line.paceTarget ? (line.actual > line.paceTarget ? 'AHEAD' : 'ON TRACK') : 'BELOW TARGET';
+        if (line.status === 'BELOW TARGET') belowTarget++;
+    });
+
+    Object.values(lines).forEach(item => {
+        if (item.buyers.length) item.buyer = item.buyers.join(' / ');
+        if (item.styles.length) item.style = item.styles.join(' / ');
+        if (item.pos.length) item.po = item.pos.join(' / ');
+    });
+    const lineList = Object.values(lines).sort((a, b) => a.line - b.line);
+    const ranked = active.filter(x => x.dailyTarget > 0).slice().sort((a, b) => (currentHour ? b.paceAchievement - a.paceAchievement : b.achievement - a.achievement));
+    const version = PropertiesService.getScriptProperties().getProperty(CT_CONFIG.POLL_VERSION_KEY) || '1';
+    const lastUpdated = PropertiesService.getScriptProperties().getProperty(CT_CONFIG.LAST_UPDATED_KEY) || (latestMs ? new Date(latestMs).toISOString() : null);
+    const response = {
+        date: dateKey,
+        timestamp: new Date().toISOString(),
+        lastUpdated,
+        dataVersion: version,
+        kpis: {
+            dailyTarget: totalTarget,
+            actual: totalActual,
+            gap: totalActual - totalTarget,
+            achievement: totalTarget > 0 ? totalActual / totalTarget * 100 : 0,
+            efficiency: totalAvailable > 0 ? totalEarned / totalAvailable * 100 : null,
+            efficiencyTarget: active.filter(x => x.availableMinutes > 0).reduce((sum, x) => sum + x.efficiencyTarget * x.availableMinutes, 0) / Math.max(1, active.filter(x => x.availableMinutes > 0).reduce((sum, x) => sum + x.availableMinutes, 0)),
+            activeLines: active.length,
+            belowTargetLines: belowTarget,
+            configuredLines: active.filter(x => x.dailyTarget > 0 && x.smv > 0 && x.manpower > 0).length,
+            bestLine: ranked.length ? { line: ranked[0].line, achievement: currentHour ? ranked[0].paceAchievement : ranked[0].achievement } : null,
+            worstLine: ranked.length ? { line: ranked[ranked.length - 1].line, achievement: currentHour ? ranked[ranked.length - 1].paceAchievement : ranked[ranked.length - 1].achievement } : null,
+            currentHour
+        },
+        hourly,
+        lines: lineList
+    };
+    cache.put(cacheKey, JSON.stringify(response), 8);
+    return response;
+}
+
+function enterpriseGetQuality(dateString) {
+    const ss = ctSpreadsheet_();
+    const tz = ss.getSpreadsheetTimeZone() || 'Asia/Dhaka';
+    const dateKey = ctDateKeyFromInput_(dateString, tz);
+    const cache = CacheService.getScriptCache();
+    const versionNow = PropertiesService.getScriptProperties().getProperty(CT_CONFIG.POLL_VERSION_KEY) || '1';
+    const cacheKey = 'ct_quality_' + dateKey + '_' + versionNow;
+    const cached = cache.get(cacheKey);
+    if (cached) return JSON.parse(cached);
+    const sh = ss.getSheetByName(CT_CONFIG.QUALITY_SHEET);
+    const configs = ctLineRows_();
+    const byLine = {};
+    for (let n = 1; n <= 14; n++) byLine[n] = { line: n, checked: 0, pass: 0, defect: 0, passRate: 0, dhu: 0, dhuTarget: configs[n].dhuTarget, status: 'NO DATA' };
+    const defects = {};
+    let totalChecked = 0, totalPass = 0, totalDefect = 0, latestMs = 0;
+    if (sh && sh.getLastRow() >= 2) {
+        const rows = sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(11, sh.getLastColumn())).getValues();
+        rows.forEach(r => {
+            if (!r[0] || ctDateKey_(r[0], tz) !== dateKey) return;
+            const line = Number(r[2]);
+            if (!byLine[line]) return;
+            const checked = Number(r[6]) || 0, pass = Number(r[7]) || 0, defect = Number(r[8]) || 0;
+            byLine[line].checked += checked; byLine[line].pass += pass; byLine[line].defect += defect;
+            totalChecked += checked; totalPass += pass; totalDefect += defect;
+            const name = String(r[10] || r[9] || 'Unspecified defect').trim() || 'Unspecified defect';
+            if (defect > 0) defects[name] = (defects[name] || 0) + defect;
+            const stamp = ctCombineDateTime_(r[0], r[1]);
+            if (stamp && stamp.getTime() > latestMs) latestMs = stamp.getTime();
+        });
+    }
+    const lines = Object.values(byLine).map(x => {
+        x.passRate = x.checked > 0 ? x.pass / x.checked * 100 : 0;
+        x.dhu = x.checked > 0 ? x.defect / x.checked * 100 : 0;
+        x.status = x.checked <= 0 ? 'NO DATA' : (x.dhuTarget > 0 ? (x.dhu <= x.dhuTarget ? 'GOOD' : 'ACTION') : 'NO TARGET');
+        return x;
+    });
+    const topDefects = Object.keys(defects).map(name => ({ name, pcs: defects[name] })).sort((a, b) => b.pcs - a.pcs).slice(0, 8);
+    const response = {
+        date: dateKey,
+        timestamp: new Date().toISOString(),
+        lastUpdated: PropertiesService.getScriptProperties().getProperty(CT_CONFIG.LAST_UPDATED_KEY) || (latestMs ? new Date(latestMs).toISOString() : null),
+        dataVersion: PropertiesService.getScriptProperties().getProperty(CT_CONFIG.POLL_VERSION_KEY) || '1',
+        kpis: { checked: totalChecked, pass: totalPass, defect: totalDefect, passRate: totalChecked ? totalPass / totalChecked * 100 : 0, dhu: totalChecked ? totalDefect / totalChecked * 100 : 0, linesWithData: lines.filter(x => x.checked > 0).length, actionLines: lines.filter(x => x.status === 'ACTION').length },
+        lines,
+        topDefects
+    };
+    cache.put(cacheKey, JSON.stringify(response), 12);
+    return response;
+}
+
+function enterpriseSaveProduction(payload) {
+    const line = Number(payload.line), hour = Number(payload.hour), pcs = Number(payload.pcs);
+    if (!Number.isInteger(line) || line < 1 || line > 14) throw new Error('Line must be between 1 and 14.');
+    if (!Number.isInteger(hour) || hour < 1 || hour > 11) throw new Error('Hour must be between 1 and 11.');
+    if (!isFinite(pcs) || pcs < 0) throw new Error('PCS must be zero or a positive number.');
+    const ss = ctSpreadsheet_(), sh = ss.getSheetByName(CT_CONFIG.INPUT_SHEET);
+    if (!sh) throw new Error('INPUT sheet not found.');
+    const id = String(payload.requestId || Utilities.getUuid());
+    const lock = LockService.getScriptLock(); lock.waitLock(10000);
+    try {
+        if (ctIsDuplicate_(sh, CT_CONFIG.INPUT_REQUEST_ID_COL, id)) return { saved: true, duplicate: true, requestId: id };
+        const cfg = ctLineRows_()[line];
+        const date = ctParseDate_(payload.date, ss.getSpreadsheetTimeZone() || 'Asia/Dhaka');
+        const now = new Date();
+        const row = [date, now, line, hour, String(payload.buyer || cfg.buyer || '').trim(), String(payload.style || cfg.style || '').trim(), String(payload.po || cfg.po || '').trim(), String(payload.color || cfg.color || '').trim(), pcs, id];
+        sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
+        ctCacheRequest_(id);
+        ctAudit_('PRODUCTION INPUT', line, hour, pcs, id, payload.user || 'Vercel', payload.remark || '');
+        ctAfterWrite_();
+        return { saved: true, duplicate: false, requestId: id, savedAt: now.toISOString(), dataVersion: PropertiesService.getScriptProperties().getProperty(CT_CONFIG.POLL_VERSION_KEY) };
+    } finally { lock.releaseLock(); }
+}
+
+function enterpriseSaveQuality(payload) {
+    const line = Number(payload.line), checked = Number(payload.checked), pass = Number(payload.pass), defect = Number(payload.defect);
+    if (!Number.isInteger(line) || line < 1 || line > 14) throw new Error('Line must be between 1 and 14.');
+    if (![checked, pass, defect].every(x => isFinite(x) && x >= 0)) throw new Error('Checked, pass and defect must be non-negative numbers.');
+    if (pass > checked) throw new Error('Pass PCS cannot exceed checked PCS. Defect count is recorded separately for DHU.');
+    const ss = ctSpreadsheet_(), sh = ss.getSheetByName(CT_CONFIG.QUALITY_SHEET);
+    if (!sh) throw new Error('QUALITY INPUT sheet not found.');
+    const id = String(payload.requestId || Utilities.getUuid());
+    const lock = LockService.getScriptLock(); lock.waitLock(10000);
+    try {
+        if (ctIsDuplicate_(sh, CT_CONFIG.QUALITY_REQUEST_ID_COL, id)) return { saved: true, duplicate: true, requestId: id };
+        const cfg = ctLineRows_()[line], date = ctParseDate_(payload.date, ss.getSpreadsheetTimeZone() || 'Asia/Dhaka'), now = new Date();
+        const row = [date, now, line, String(payload.buyer || cfg.buyer || '').trim(), String(payload.style || cfg.style || '').trim(), String(payload.po || cfg.po || '').trim(), checked, pass, defect, String(payload.defectCode || '').trim(), String(payload.defectDescription || '').trim(), id];
+        sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
+        ctCacheRequest_(id);
+        ctAudit_('QUALITY INPUT', line, '', defect, id, payload.user || 'Vercel', payload.defectDescription || '');
+        ctAfterWrite_();
+        return { saved: true, duplicate: false, requestId: id, savedAt: now.toISOString(), dataVersion: PropertiesService.getScriptProperties().getProperty(CT_CONFIG.POLL_VERSION_KEY) };
+    } finally { lock.releaseLock(); }
+}
+
+function enterpriseSaveTargets(payload) {
+    if (!Array.isArray(payload.lines)) throw new Error('Target payload must contain a lines array.');
+    const ss = ctSpreadsheet_(), sh = ss.getSheetByName(CT_CONFIG.LINE_SHEET);
+    const byLine = {};
+    payload.lines.forEach(x => { const n = Number(x.line); if (n >= 1 && n <= 14) byLine[n] = x; });
+    const rows = [];
+    const currentLines = ctLineRows_();
+    for (let n = 1; n <= 14; n++) {
+        const x = byLine[n] || {};
+        const current = currentLines[n];
+
+        // Preserve existing settings when the caller sends only a partial line list.
+        const daily = x.dailyTarget !== undefined ? ctNum_(x.dailyTarget) : current.dailyTarget;
+        const smv = x.smv !== undefined ? ctNum_(x.smv) : current.smv;
+        const manpower = x.manpower !== undefined ? ctNum_(x.manpower) : current.manpower;
+        const eff = x.efficiencyTarget !== undefined ? ctNum_(x.efficiencyTarget) : current.efficiencyTarget;
+        const dhu = x.dhuTarget !== undefined ? ctNum_(x.dhuTarget) : current.dhuTarget;
+        const work = x.workingMinutes !== undefined ? (ctNum_(x.workingMinutes) || CT_CONFIG.DEFAULT_WORK_MINUTES) : current.workingMinutes;
+        const active = x.active !== undefined ? x.active !== false : current.active;
+        const buyer = x.buyer !== undefined ? String(x.buyer || '') : current.buyer;
+        const style = x.style !== undefined ? String(x.style || '') : current.style;
+        const po = x.po !== undefined ? String(x.po || '') : current.po;
+        const color = x.color !== undefined ? String(x.color || '') : current.color;
+
+        let hours;
+        if (Array.isArray(x.hourlyTargets)) {
+            hours = x.hourlyTargets.slice(0, 11).map(v => v === '' || v == null ? '' : ctNum_(v));
+        } else {
+            hours = current.hasCustomHourlyTargets ? current.hourlyTargets.slice(0, 11) : Array(11).fill('');
+        }
+        while (hours.length < 11) hours.push('');
+        rows.push([n, active, daily, smv, manpower, eff, dhu, work, buyer, style, po, color, ...hours]);
+    }
+    sh.getRange(2, 1, 14, 23).setValues(rows);
+    ctAudit_('TARGET SETUP', '', '', '', String(payload.requestId || Utilities.getUuid()), payload.user || 'Vercel', 'Line targets / SMV / manpower updated');
+    ctAfterWrite_();
+    return { saved: true, lines: 14, dataVersion: PropertiesService.getScriptProperties().getProperty(CT_CONFIG.POLL_VERSION_KEY) };
+}
+
+function ctAfterWrite_() {
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty(CT_CONFIG.LAST_UPDATED_KEY, new Date().toISOString());
+    ctBumpVersion_();
+    SpreadsheetApp.flush();
+}
+
+function enterpriseScheduledRefresh() {
+    try {
+        SpreadsheetApp.flush();
+        if (typeof updateProductionDisplay === 'function') updateProductionDisplay();
+        const props = PropertiesService.getScriptProperties();
+        props.setProperty(CT_CONFIG.LAST_UPDATED_KEY, new Date().toISOString());
+        ctBumpVersion_();
+    } catch (err) { console.error('Scheduled Control Tower refresh failed: ' + err.message); }
+}
+
+function enterpriseHandleSheetEdit(e) {
+    try {
+        if (!e || !e.range) return;
+        const name = e.range.getSheet().getName();
+        if ([CT_CONFIG.INPUT_SHEET, CT_CONFIG.QUALITY_SHEET, CT_CONFIG.LINE_SHEET, CT_CONFIG.SETUP_SHEET].indexOf(name) < 0) return;
+        const props = PropertiesService.getScriptProperties();
+        props.setProperty(CT_CONFIG.LAST_UPDATED_KEY, new Date().toISOString());
+        ctBumpVersion_();
+        SpreadsheetApp.flush();
+        try { if (typeof updateProductionDisplay === 'function') updateProductionDisplay(); } catch (err) { console.log(err.message); }
+    } catch (err) { console.error('enterpriseHandleSheetEdit: ' + err.message); }
+}
+
+function ctBumpVersion_() {
+    const p = PropertiesService.getScriptProperties();
+    p.setProperty(CT_CONFIG.POLL_VERSION_KEY, String(Number(p.getProperty(CT_CONFIG.POLL_VERSION_KEY) || 0) + 1));
+}
+
+function ctIsDuplicate_(sheet, col, id) {
+    const cache = CacheService.getScriptCache();
+    if (cache.get('ct_req_' + id)) return true;
+    const last = sheet.getLastRow();
+    if (last >= 2 && sheet.getLastColumn() >= col) {
+        const start = Math.max(2, last - 5000);
+        const vals = sheet.getRange(start, col, last - start + 1, 1).getDisplayValues().flat();
+        if (vals.indexOf(id) >= 0) { cache.put('ct_req_' + id, '1', 21600); return true; }
+    }
+    return false;
+}
+
+function ctCacheRequest_(id) { CacheService.getScriptCache().put('ct_req_' + id, '1', 21600); }
+
+function ctAudit_(action, line, hour, qty, id, source, details) {
+    const sh = ctSpreadsheet_().getSheetByName(CT_CONFIG.AUDIT_SHEET);
+    if (sh) sh.appendRow([new Date(), action, line, hour, qty, id, source, details]);
+}
+
+function ctNum_(v) { const n = Number(v); return isFinite(n) && v !== '' && v != null ? n : 0; }
+
+function ctDateKeyFromInput_(value, tz) {
+    if (!value) return Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd');
+    const s = String(value).trim().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) throw new Error('Date must use YYYY-MM-DD.');
+    const parts = s.split('-').map(Number);
+    const check = new Date(Date.UTC(parts[0], parts[1] - 1, parts[2]));
+    if (check.getUTCFullYear() !== parts[0] || check.getUTCMonth() !== parts[1] - 1 || check.getUTCDate() !== parts[2]) {
+        throw new Error('Invalid calendar date: ' + s);
+    }
+    return s;
+}
+
+function ctParseDate_(value, tz) {
+    const key = ctDateKeyFromInput_(value, tz);
+    // Parse in the spreadsheet timezone to avoid script/server timezone shifts.
+    return Utilities.parseDate(key, tz, 'yyyy-MM-dd');
+}
+
+function ctDateKey_(value, tz) {
+    if (value instanceof Date) return Utilities.formatDate(value, tz, 'yyyy-MM-dd');
+    const d = new Date(value);
+    if (!isNaN(d.getTime())) return Utilities.formatDate(d, tz, 'yyyy-MM-dd');
+    return String(value).trim().slice(0, 10);
+}
+
+function ctCombineDateTime_(dateValue, timeValue) {
+    if (!(dateValue instanceof Date)) return null;
+    const d = new Date(dateValue.getTime());
+    if (timeValue instanceof Date) d.setHours(timeValue.getHours(), timeValue.getMinutes(), timeValue.getSeconds(), 0);
+    return d;
+}
