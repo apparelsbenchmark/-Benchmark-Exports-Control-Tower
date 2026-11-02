@@ -2,22 +2,28 @@ import { gasGet } from '@/lib/gas';
 import type { TargetLine } from '@/lib/types';
 
 export const dynamic = 'force-dynamic';
+export const runtime = 'nodejs';
 
 export async function GET() {
   try {
-    const result = await gasGet<{ lines: TargetLine[]; timestamp: string }>('targets');
+    const [health, targets] = await Promise.all([
+      gasGet<{ system: string; status: string; timestamp: string }>('health'),
+      gasGet<{ lines: TargetLine[]; timestamp: string }>('targets')
+    ]);
 
-    if (!Array.isArray(result.lines) || result.lines.length !== 14) {
-      throw new Error(
-        `Apps Script responded, but LINE MASTER data is incomplete. Expected 14 line records and received ${Array.isArray(result.lines) ? result.lines.length : 0}.`
-      );
+    if (health.status !== 'connected') {
+      throw new Error('Apps Script health check did not return connected status.');
+    }
+    if (!Array.isArray(targets.lines) || targets.lines.length !== 14) {
+      throw new Error(`LINE MASTER must contain 14 line records. Received ${Array.isArray(targets.lines) ? targets.lines.length : 0}.`);
     }
 
     return Response.json({
       ok: true,
       connected: true,
       message: 'Connected to the Benchmark Control Tower Google Sheet.',
-      lineCount: result.lines.length,
+      system: health.system,
+      lineCount: targets.lines.length,
       checkedAt: new Date().toISOString()
     }, { headers: { 'Cache-Control': 'no-store, max-age=0' } });
   } catch (error) {

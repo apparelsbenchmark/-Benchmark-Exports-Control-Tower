@@ -116,7 +116,7 @@ export default function TvPage() {
   useEffect(() => {
     if (!date) return;
     load();
-    const timer = window.setInterval(() => load(true), 2000);
+    const timer = window.setInterval(() => load(true), 5000);
     return () => window.clearInterval(timer);
   }, [load, date]);
   useEffect(() => {
@@ -162,7 +162,7 @@ export default function TvPage() {
       <header className="v4-tv-header">
         <div className="v4-brand-lockup"><span className="v4-group-logo-frame"><img src="/benchmark-group-logo.png" alt="Benchmark Group — Quality is what we do" className="v4-group-logo" /></span><div className="v4-brand-wordmark"><strong>BENCHMARK <span>EXPORTS</span></strong><small>A BENCHMARK GROUP COMPANY</small></div></div>
         <div className="v4-tv-heading"><h1>PRODUCTION CONTROL TOWER</h1><p>LIVE PRODUCTION MONITORING</p></div>
-        <div className="v4-tv-clock-area"><div className="v4-live-badge"><i/> LIVE</div><div className="v4-clock-stack"><strong>{now ? clock(now) : '--:--:--'}</strong><span>{now ? fullDate(now) : 'LOADING DATE'}</span></div><button className="v4-fullscreen" onClick={() => document.documentElement.requestFullscreen?.()} aria-label="Enter full screen">⛶</button></div>
+        <div className="v4-tv-clock-area"><div className="v4-live-badge"><i/> LIVE</div><div className="v4-clock-stack"><strong>{now ? clock(now) : '--:--:--'}</strong><span>{now ? fullDate(now) : 'LOADING DATE'}</span></div><button className="v4-fullscreen" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.(); }} aria-label="Enter full screen">⛶</button></div>
       </header>
 
       {error && <div className="v4-error-banner"><b>DATA CONNECTION WARNING</b><span>{error}</span><button onClick={() => load()}>RETRY</button></div>}
@@ -200,7 +200,7 @@ export default function TvPage() {
 
       <footer className="v4-tv-footer v4-production-footer">
         <div><b>BENCHMARK EXPORTS</b><span> · PRODUCTION CONTROL TOWER</span></div>
-        <div className="v4-sync-indicator"><i/>{loading ? 'SYNCHRONIZING' : 'AUTO UPDATE · EVERY 2 SECONDS'}<span>LAST SYNC {lastSync ? clock(lastSync) : 'WAITING'}{lastSyncAge == null ? '' : ` · ${lastSyncAge}s AGO`}</span></div>
+        <div className="v4-sync-indicator"><i/>{loading ? 'SYNCHRONIZING' : 'AUTO UPDATE · EVERY 5 SECONDS'}<span>LAST SYNC {lastSync ? clock(lastSync) : 'WAITING'}{lastSyncAge == null ? '' : ` · ${lastSyncAge}s AGO`}</span><button type="button" className="text-action" onClick={() => void load()} disabled={loading}>{loading ? 'REFRESHING…' : '↻ REFRESH NOW'}</button></div>
         <div className="v4-footer-right"><label>PRODUCTION DATE</label><input type="date" value={date} onChange={event => setDate(event.target.value)}/><Link href="/quality">QUALITY DASHBOARD ↗</Link><span>DATA VERSION {data?.dataVersion || '—'}</span></div>
       </footer>
     </main>

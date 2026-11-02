@@ -95,12 +95,12 @@ async function parseAppsScriptResponse<T>(response: Response): Promise<T> {
 
   if (looksLikeLegacyHealthCheck) {
     throw new Error(
-      `The Apps Script URL is reaching an OLD or DIFFERENT handler. It returned fields [${keys.join(', ')}], but the Control Tower API must return { ok: true, data: ... }. In the bound Apps Script project, make sure EnterpriseApi.gs is saved and deployed as a NEW VERSION. Keep its doGet/doPost as the only active handlers; rename every old handler in other files to legacyOldDoGet/legacyOldDoPost.`
+      `The Apps Script URL is reaching an OLD or DIFFERENT handler. It returned fields [${keys.join(', ')}], but the Control Tower API must return { ok: true, data: ... }. In the bound Apps Script project, replace Code.gs with the supplied complete merged Code.gs and deploy a NEW VERSION. It must be the only file with active doGet/doPost handlers; rename or remove any other active handler declarations.`
     );
   }
 
   throw new Error(
-    `Unexpected Apps Script response. Expected { ok: true, data: ... }; received fields [${keys.join(', ') || 'none'}]. Check that the latest EnterpriseApi.gs deployment is selected.`
+    `Unexpected Apps Script response. Expected { ok: true, data: ... }; received fields [${keys.join(', ') || 'none'}]. Check that the latest merged Code.gs deployment is selected.`
   );
 }
 

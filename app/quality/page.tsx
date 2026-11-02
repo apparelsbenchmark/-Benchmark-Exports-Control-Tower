@@ -140,7 +140,7 @@ export default function QualityPage() {
         <div className="v4-tv-clock-area">
           <div className="v4-live-badge"><i/> LIVE</div>
           <div className="v4-clock-stack"><strong>{now ? clock(now) : '--:--:--'}</strong><span>{now ? now.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }) : 'LOADING DATE'}</span></div>
-          <button className="v4-fullscreen" onClick={() => document.documentElement.requestFullscreen?.()} aria-label="Enter full screen">⛶</button>
+          <button className="v4-fullscreen" onClick={() => { if (document.fullscreenElement) void document.exitFullscreen(); else void document.documentElement.requestFullscreen?.(); }} aria-label="Enter full screen">⛶</button>
         </div>
       </header>
 
@@ -211,8 +211,8 @@ export default function QualityPage() {
 
       <footer className="v4-quality-footer">
         <div><b>BENCHMARK EXPORTS</b><span> · QUALITY CONTROL & DHU MONITORING</span></div>
-        <div className="v4-sync-indicator"><i/>{loading ? 'SYNCHRONIZING' : 'AUTO UPDATE · EVERY 5 SECONDS'}<span>LAST SYNC {lastSync ? clock(lastSync) : 'WAITING'}{lastSyncAge == null ? '' : ` · ${lastSyncAge}s AGO`}</span></div>
-        <div className="v4-quality-footer-right"><label>REPORT DATE</label><input type="date" value={date} onChange={event => setDate(event.target.value)}/><Link href="/tv">← PRODUCTION TV</Link><span>DATA VERSION {data?.dataVersion || '—'}</span></div>
+        <div className="v4-sync-indicator"><i/>{loading ? 'SYNCHRONIZING' : 'AUTO UPDATE · EVERY 5 SECONDS'}<span>LAST SYNC {lastSync ? clock(lastSync) : 'WAITING'}{lastSyncAge == null ? '' : ` · ${lastSyncAge}s AGO`}</span><button type="button" className="text-action" onClick={() => void load()} disabled={loading}>{loading ? 'REFRESHING…' : '↻ REFRESH NOW'}</button></div>
+        <div className="v4-quality-footer-right"><label>REPORT DATE</label><input type="date" value={date} onChange={event => setDate(event.target.value)}/><Link href="/tv">← PRODUCTION TV</Link><Link href="/input">INPUT TERMINAL ↗</Link><span>DATA VERSION {data?.dataVersion || '—'}</span></div>
       </footer>
     </main>
   );

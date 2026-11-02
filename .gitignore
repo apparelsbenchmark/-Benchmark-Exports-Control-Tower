@@ -9,9 +9,3 @@ build/
 *.log
 *.backup
 .DS_Store
-
-.env
-.env.*
-node_modules/
-.next/
-.vercel/

@@ -401,3 +401,55 @@
 .v4-brand-lockup .v4-brand-wordmark strong{font-size:clamp(14px,1.15vw,20px);letter-spacing:-.45px}
 .v4-brand-lockup .v4-brand-wordmark small{font-size:8px;letter-spacing:.8px}
 @media(max-width:1450px){.v4-group-logo-frame{width:88px;height:47px;flex-basis:88px}.v4-brand-lockup{gap:9px}.v4-brand-lockup .v4-brand-wordmark strong{font-size:16px}}
+
+
+/* Explicit PIN verification controls for supervisor and admin pages */
+.access-box .verify-pin-button{
+  border:1px solid #24677a;
+  border-radius:8px;
+  padding:10px 12px;
+  background:#103746;
+  color:#7de6ef;
+  font:700 10px 'DM Mono';
+  letter-spacing:.8px;
+  cursor:pointer;
+}
+.access-box .verify-pin-button:disabled{opacity:.5;cursor:not-allowed}
+.access-box .verify-pin-button.verified{
+  background:#10382f;
+  border-color:#218363;
+  color:#83e5bd;
+}
+
+
+/* V5.3.2 functional controls and clear save-state feedback */
+.pin-entry-row{display:flex;align-items:stretch;gap:8px;width:100%}
+.pin-entry-row input{min-width:0;flex:1}
+.access-box .verify-pin-button{white-space:nowrap;min-height:42px;padding:10px 13px}
+.pin-state{display:block;min-height:16px;color:#8ba2b8;font:10px/1.5 'DM Mono';letter-spacing:.2px}
+.pin-state.success{color:#83e5bd}
+.form-action-help,.target-action-help{display:flex;flex-direction:column;gap:6px;max-width:58%}
+.form-action-help>span,.target-action-help>span{font-size:11px;line-height:1.5;color:#8298ad}
+.form-action-help small,.target-action-help small{font-size:10px;line-height:1.5;color:#6e8ba5}
+.form-action-buttons{display:flex;align-items:center;justify-content:flex-end;gap:10px;flex-wrap:wrap}
+.secondary-button{background:#0d2033;border:1px solid #2a455d;border-radius:8px;color:#a9bfd2;padding:13px 16px;font:700 10px 'DM Mono';letter-spacing:.7px;cursor:pointer}
+.secondary-button:disabled{opacity:.45;cursor:not-allowed}
+.text-action{border:1px solid #24536a;border-radius:7px;background:#0d2b3b;color:#70dce8;padding:7px 10px;font:700 9px 'DM Mono';letter-spacing:.35px;cursor:pointer;white-space:nowrap}
+.text-action:hover{background:#123d4d}
+.text-action:disabled{opacity:.5;cursor:not-allowed}
+.text-action.muted{border-color:#34475b;background:#101e2d;color:#91a4b7}
+.panel-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.hour-plan-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:12px 14px 0}
+.hour-target-card .hour-target-fields{padding-top:12px}
+.target-actions{align-items:center}
+@media(max-width:760px){
+  .admin-heading{align-items:stretch;flex-direction:column}
+  .access-box{width:100%;min-width:0}
+  .pin-entry-row{flex-wrap:wrap}
+  .pin-entry-row input{width:100%}
+  .form-actions,.target-actions{align-items:stretch;flex-direction:column}
+  .form-action-help,.target-action-help{max-width:100%}
+  .form-action-buttons{width:100%;justify-content:stretch}
+  .form-action-buttons button{flex:1}
+  .panel-tools{align-items:flex-start}
+}
