@@ -200,7 +200,7 @@ export default function TvPage() {
 
       <footer className="v4-tv-footer v4-production-footer">
         <div><b>BENCHMARK EXPORTS</b><span> · PRODUCTION CONTROL TOWER</span></div>
-        <div className="v4-sync-indicator"><i/>{loading ? 'SYNCHRONIZING' : 'AUTO UPDATE · EVERY 5 SECONDS'}<span>LAST SYNC {lastSync ? clock(lastSync) : 'WAITING'}{lastSyncAge == null ? '' : ` · ${lastSyncAge}s AGO`}</span><button type="button" className="text-action" onClick={() => void load()} disabled={loading}>{loading ? 'REFRESHING…' : '↻ REFRESH NOW'}</button></div>
+        <div className="v4-sync-indicator"><i/>{loading ? 'SYNCHRONIZING' : 'AUTO UPDATE · EVERY 30 SECONDS'}<span>LAST SYNC {lastSync ? clock(lastSync) : 'WAITING'}{lastSyncAge == null ? '' : ` · ${lastSyncAge}s AGO`}</span><button type="button" className="text-action" onClick={() => void load()} disabled={loading}>{loading ? 'REFRESHING…' : '↻ REFRESH NOW'}</button></div>
         <div className="v4-footer-right"><label>PRODUCTION DATE</label><input type="date" value={date} onChange={event => setDate(event.target.value)}/><Link href="/quality">QUALITY DASHBOARD ↗</Link><span>DATA VERSION {data?.dataVersion || '—'}</span></div>
       </footer>
     </main>
