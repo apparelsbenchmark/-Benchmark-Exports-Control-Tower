@@ -116,7 +116,7 @@ export default function TvPage() {
   useEffect(() => {
     if (!date) return;
     load();
-    const timer = window.setInterval(() => load(true), 5000);
+    const timer = window.setInterval(() => load(true), 30000);
     return () => window.clearInterval(timer);
   }, [load, date]);
   useEffect(() => {
