@@ -126,7 +126,7 @@ export default function TvPage() {
     return () => window.clearInterval(timer);
   }, []);
   useEffect(() => {
-    const timer = window.setInterval(() => setPage(current => current === 0 ? 1 : 0), 8000);
+    const timer = window.setInterval(() => setPage(current => current === 0 ? 1 : 0), 30000);
     return () => window.clearInterval(timer);
   }, []);
 
